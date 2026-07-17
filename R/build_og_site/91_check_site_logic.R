@@ -7,7 +7,8 @@
 #   A  worked examples. A handful of patients whose right answer is known
 #      because it was built in - a clean code, a trust code pretending to be a
 #      site, a GP practice code, the defaults, a row for someone's bowel cancer,
-#      a C16 row on a C15 patient, two codes competing. Each is put through the
+#      a C16 row on a C15 patient, a junction row competing with the patient's
+#      own, two codes competing. Each is put through the
 #      real build script and the answer checked exactly. This is the part that
 #      proves the rules.
 #   B  stand-in data. The full-size made-up extracts from 90, where the true site
@@ -49,7 +50,7 @@ expect <- function(label, cond) {
 
 # run 02 over the given data and hand back the cohort it makes
 run_build <- function(rapid, cosd, max_rank = 3L, use_snomed = TRUE,
-                      drop_other = TRUE, map = NULL) {
+                      drop_non_og = TRUE, map = NULL) {
   assign("dir_out", tempfile("og_check_"), envir = globalenv())
   assign("dir_raw", tempdir(), envir = globalenv())
   assign("dir_ref", tempdir(), envir = globalenv())
@@ -58,7 +59,7 @@ run_build <- function(rapid, cosd, max_rank = 3L, use_snomed = TRUE,
   assign("read_snomed_map", function() map, envir = globalenv())
   assign("site_max_rank", max_rank, envir = globalenv())
   assign("snomed_from_data", use_snomed, envir = globalenv())
-  assign("drop_non_og_rows", drop_other, envir = globalenv())
+  assign("drop_non_og_rows", drop_non_og, envir = globalenv())
   env <- new.env()
   invisible(capture.output(
     suppressMessages(sys.source(file.path(dir_build, "02_add_site_of_diagnosis.R"),
@@ -91,7 +92,8 @@ rapid_eg <- tribble(
   "e14_order_break",  "C15",        "8140",                 "RZ9",
   "e15_no_cosd",      "C15",        "8140",                 "RJ1",
   "e16_no_trust",     "C15",        "8140",                 "",
-  "e17_topog_text",   "C15",        "8140",                 "RJ1")
+  "e17_topog_text",   "C15",        "8140",                 "RJ1",
+  "e18_own_beats_og", "C15",        "8140",                 "RZ9")
 
 # The SNOMED codes have to earn their meaning from the data, so the examples
 # include enough plainly labelled rows for the build to learn that 111000001 is
@@ -131,9 +133,10 @@ cosd_eg <- tribble(
   "e07_lowercase",    "rj121",  "",     "",     NA, 5L,
   # this row is about the patient's bowel cancer: its site must not be used
   "e08_bowel_row",    "RQQ01",  "C182", "",     NA, 5L,
-  # a C16 row on a C15 patient is just as wrong as a bowel one
+  # a C16 row on a C15 patient is kept: at the junction the registry and the map
+  # can describe one tumour differently, and only non-OG rows are thrown out
   "e09_c16_on_c15",   "RQQ02",  "C161", "",     NA, 5L,
-  # the same, said in SNOMED rather than ICD-O
+  # a bowel row again, said in SNOMED rather than ICD-O
   "e10_snomed_other", "RQQ03",  "",     "",     222000002, 5L,
   # and SNOMED can confirm the tumour as well as rule it out
   "e11_snomed_own",   "RB201",  "",     "",     111000001, 5L,
@@ -151,6 +154,10 @@ cosd_eg <- tribble(
   "e16_no_trust",     "RH101",  "",     "",     NA, 5L,
   # topography arrives with its description tacked on
   "e17_topog_text",   "RJ103",  "C155: LOWER THIRD OF OESOPHAGUS", "", NA, 5L,
+  # both sides on offer and no trust to help: the row naming the patient's own
+  # site has to win, or restricting to C15 later sends them to the wrong hospital
+  "e18_own_beats_og", "RQQ04",  "C161", "",     NA, 5L,
+  "e18_own_beats_og", "RB301",  "C155", "",     NA, 5L,
   # a COSD patient the registry has never heard of
   "x99_not_in_rapid", "RZZ01",  "",     "",     NA, 5L)
 
@@ -187,6 +194,9 @@ expect("a SNOMED code meaning a cancer that is not OG rules the row out",
        is.na(val("e10_snomed_other", "site_dx_code")))
 expect("a row for the other side of the junction ranks below a confirmed one",
        as.character(val("e09_c16_on_c15", "site_dx_basis")) != "tumour confirmed")
+expect("the patient's own site beats the other side when both are offered",
+       val("e18_own_beats_og", "site_dx_code") == "RB301" &&
+         as.character(val("e18_own_beats_og", "site_dx_basis")) == "tumour confirmed")
 expect("a SNOMED code meaning the patient's own cancer confirms the row",
        val("e11_snomed_own", "site_dx_code") == "RB201" &&
          as.character(val("e11_snomed_own", "site_dx_basis")) == "tumour confirmed")
@@ -224,23 +234,23 @@ expect("reversing the COSD row order changes nothing",
                    as.character(out_rev$site_dx_basis)))
 
 # with the SNOMED reading switched off, the SNOMED-only rows go back to saying
-# nothing: the other-cancer row is no longer ruled out, and the own-cancer row is
-# no longer confirmed
+# nothing: the bowel row is no longer ruled out, and the own-cancer row is no
+# longer confirmed
 out_nos <- run_build(rapid_eg, cosd_eg, use_snomed = FALSE)
 val2 <- function(id, col) out_nos[[col]][out_nos$patient_pseudo_id == id]
-expect("without SNOMED, the other-cancer row is no longer ruled out",
+expect("without SNOMED, the non-OG row is no longer ruled out",
        val2("e10_snomed_other", "site_dx_code") == "RQQ03")
 expect("without SNOMED, the own-cancer row is no longer confirmed",
        as.character(val2("e11_snomed_own", "site_dx_basis")) == "no support")
 
-# turning the other-cancer rule off should bring those patients back, and change
+# turning the non-OG rule off should bring those patients back, and change
 # nobody else
-out_keep <- run_build(rapid_eg, cosd_eg, drop_other = FALSE)
+out_keep <- run_build(rapid_eg, cosd_eg, drop_non_og = FALSE)
 val3 <- function(id, col) out_keep[[col]][out_keep$patient_pseudo_id == id]
-expect("with the other-cancer rule off, those rows come back",
+expect("with the non-OG rule off, the bowel rows come back",
        val3("e08_bowel_row", "site_dx_code") == "RQQ01" &&
-         val3("e09_c16_on_c15", "site_dx_code") == "RQQ02")
-expect("with the other-cancer rule off, nobody else moves",
+         val3("e10_snomed_other", "site_dx_code") == "RQQ03")
+expect("with the non-OG rule off, nobody else moves",
        {
          # the teaching patients above carry bowel rows of their own, so they
          # are expected to move too; compare the worked examples only
@@ -413,6 +423,26 @@ if (run_sim_check) {
            a <- setNames(by_basis$a, as.character(by_basis$site_dx_basis))
            a[["tumour confirmed"]] > a[["no support"]]
          })
+  
+  # 03 does no work of its own - it re-reads what 02 wrote and reports on it - so
+  # the check here is only that it runs to the end and writes its review files,
+  # against both a build with a SNOMED map and one without.
+  cat("\n  diagnostics script\n")
+  run_diag <- function(map) {
+    d <- tempfile("og_diag_"); dir.create(d)
+    assign("dir_out", d, envir = globalenv())
+    assign("read_rapid", function() sim_rapid, envir = globalenv())
+    assign("read_cosd",  function() sim_cosd,  envir = globalenv())
+    assign("read_snomed_map", function() map, envir = globalenv())
+    # 03 reads the cohort 02 wrote, so run 02 into the same folder first
+    invisible(capture.output(suppressMessages(
+      sys.source(file.path(dir_build, "02_add_site_of_diagnosis.R"), new.env()))))
+    invisible(capture.output(suppressMessages(
+      sys.source(file.path(dir_build, "03_site_diagnostics.R"), new.env()))))
+    file.exists(file.path(d, "diag_field_effect.csv"))
+  }
+  expect("the diagnostics run through with a SNOMED map", run_diag(sim_map))
+  expect("the diagnostics run through with no SNOMED map", run_diag(NULL))
 }
 
 # =============================================================================

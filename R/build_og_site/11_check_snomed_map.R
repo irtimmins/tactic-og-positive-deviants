@@ -70,6 +70,10 @@ fake_descriptions <- bind_rows(
   # named without the word junction, which is how the UK concepts read and how
   # the flag came to miss them
   desc_row("444000001", "Siewert type I adenocarcinoma (disorder)"),
+  # named to sort alphabetically between the two junction terms above, so an
+  # alphabetical ordering would put a benign overlapping-site row between two
+  # rows that need a real decision
+  desc_row("777000002", "Overlapping malignant neoplasm of esophagus (disorder)"),
   desc_row("666000001", "Malignant neoplasm of overlapping site (disorder)"),
   # a synonym, which must not be used in place of the fully specified name
   desc_row("111000001", "Oesophageal adenocarcinoma", "900000000000013009"),
@@ -109,6 +113,9 @@ fake_map <- bind_rows(
   # kept as C16.
   row_of("m15", "20240101", "1", "904000001", "C16.9"),
   row_of("m16", "20240101", "1", "904000001", "B97.8", group = 2),
+  # an overlapping-site code, to sit alongside the junction one in the ordering
+  # check below
+  row_of("m17", "20240101", "1", "777000002", "C15.8"),
   row_of("m10", "20240101", "1", "777000001", ""),        # nothing to say
   # a marker, not a code
   row_of("m11", "20240101", "1", "888000001", "#NC"),
@@ -258,7 +265,7 @@ expect("the survey shows OPCS-4 contributing bogus C15/C16 codes",
 # gets 4 where the survey says 6.
 expect("the survey counts the OG codes per map, roughly",
        sv$og_codes_rough[sv$refset == icd10_uk & grepl(
-         "iisssciRefset_ExtendedMapUKCLSnapshot", sv$file)][1] == 7)
+         "iisssciRefset_ExtendedMapUKCLSnapshot", sv$file)][1] == 8)
 expect("the survey shows the decoy files have no OG codes",
        all(sv$og_codes_rough[!grepl("iisssciRefset_ExtendedMapUKCLSnapshot",
                                     sv$file)] == 0))
@@ -344,7 +351,7 @@ expect("an OPCS-4 eye operation at C15 is not read as oesophageal cancer",
        !"901000001" %in% og$snomed)
 expect("an OPCS-4 eye operation at C16 is not read as gastric cancer",
        !"902000001" %in% og$snomed)
-expect("nothing else sneaks in", nrow(og) == 5)
+expect("nothing else sneaks in", nrow(og) == 6)
 expect("the sites are only ever C15 or C16", all(og$site3 %in% c("C15", "C16")))
 
 # a Full file, where the same entry appears many times, must give the same
@@ -370,7 +377,7 @@ expect("names are read from the release",
 expect("the International and the UK description files are both read",
        all(c("111000001", "901000001") %in% terms$snomed))
 expect("a text definition file is not mistaken for a description file",
-       nrow(terms) == 8 && !"decoy" %in% terms$snomed)
+       nrow(terms) == 9 && !"decoy" %in% terms$snomed)
 expect("the fully specified name is used, not a synonym",
        terms$term[terms$snomed == "111000001"] == "Adenocarcinoma of oesophagus")
 expect("the semantic tag is pulled out of the name",
@@ -400,6 +407,19 @@ expect("the flag patterns are lowercase, since the terms are lowercased first",
        identical(review_flags$pattern, str_to_lower(review_flags$pattern)))
 expect("the flags do not drop any codes",
        nrow(review) == nrow(og))
+expect("junction rows outrank overlapping-site rows regardless of the alphabet",
+       {
+         withrank <- og %>% mutate(term = name_of(snomed, terms)) %>%
+           flag_for_review()
+         j <- withrank$look_at_rank[withrank$snomed == "555000001"]
+         o <- withrank$look_at_rank[withrank$snomed == "777000002"]
+         !is.na(j) && !is.na(o) && j < o
+       })
+expect("an unflagged row has no rank",
+       is.na(withrank <- (og %>% mutate(term = name_of(snomed, terms)) %>%
+                            flag_for_review())$look_at_rank[
+                              (og %>% mutate(term = name_of(snomed, terms)) %>%
+                                 flag_for_review())$snomed == "111000001"]))
 
 expect("codes we could not place are written out, not silently lost",
        nrow(res$dropped) == 1 && res$dropped$snomed == "666000001")

@@ -31,6 +31,21 @@ if (!exists("dir_out")) dir_out <- "Data/OG"
 if (!exists("dir_ref")) dir_ref <- "Data/reference"
 dir.create(dir_out, recursive = TRUE, showWarnings = FALSE)
 
+# dir_transfer is the one folder on the analysis server that is not encrypted at
+# rest, so it is the only place output meant to leave the server can be written.
+# 00_master.R copies the diagnostics csvs and the build log there. It holds
+# nothing patient-identifying beyond the pseudonymised patient_pseudo_id already
+# used throughout the project, and only ever small summary tables or a capped
+# sample - never a full extract.
+#
+# Defaults to off (NULL). Set dir_transfer <- "S:/..." before sourcing to turn it
+# on for a real run. Leave it NULL, or point it at a scratch folder, for a
+# simulated or test run - otherwise made-up numbers land in the real folder next
+# to real results, which is exactly the mix-up this default is there to prevent.
+if (!exists("dir_transfer")) dir_transfer <- NULL
+if (!is.null(dir_transfer))
+  dir.create(dir_transfer, recursive = TRUE, showWarnings = FALSE)
+
 path_rapid_dta <- file.path(dir_raw,
                             "20260212_Rapidtumour_linked_2026SOTN_clean_OG_postPT.dta")
 path_cosd_dta  <- file.path(dir_raw,

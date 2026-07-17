@@ -129,9 +129,9 @@ cosd <- in_cosd %>%
     site_true = case_when(
       row_kind == "the patient's own tumour" ~ true_site,
       row_kind == "own tumour, another site" ~ map_chr(true_trust,
-                                                ~ sample(sites_by_trust[[.x]], 1)),
+                                                       ~ sample(sites_by_trust[[.x]], 1)),
       TRUE                                   ~ map_chr(sample(trusts, n(), TRUE),
-                                                ~ sample(sites_by_trust[[.x]], 1))))
+                                                       ~ sample(sites_by_trust[[.x]], 1))))
 
 cosd <- cosd %>%
   mutate(
@@ -198,9 +198,9 @@ cosd_out <- bind_rows(cosd_out, tibble(
 # Write
 # -----------------------------------------------------------------------------
 f_rapid <- file.path(dir_sim,
-  "20260212_Rapidtumour_linked_2026SOTN_clean_OG_postPT.dta")
+                     "20260212_Rapidtumour_linked_2026SOTN_clean_OG_postPT.dta")
 f_cosd <- file.path(dir_sim,
-  "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
+                    "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
 
 write_dta(rapid, f_rapid)
 write_dta(cosd_out, f_cosd)
