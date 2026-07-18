@@ -373,11 +373,16 @@ cat("\nPatients whose tumour-confirmed code and trust-matched code disagree:",
 cat("For these, the build takes the confirmed code. If that is the wrong call,",
     "\nthis is the number of patients it affects.\n")
 if (nrow(conflict)) {
+  # no patient_pseudo_id here - this file is meant to leave the server, and a
+  # pattern-level count of which codes disagree does the job without carrying
+  # any per-patient identifier. Tracing a specific patient, if that is ever
+  # needed, is done on the server directly from the .rds files, which never
+  # leave it.
   conflict %>%
     mutate(confirmed = map_chr(confirmed_code, ~ paste(.x, collapse = "|")),
            trust     = map_chr(trust_code, ~ paste(.x, collapse = "|"))) %>%
-    select(patient_pseudo_id, confirmed, trust) %>%
-    head(200) %>%
+    count(confirmed, trust, name = "patients") %>%
+    arrange(desc(patients)) %>%
     write_diag(f_diag_trust_vs_tum)
 }
 
