@@ -182,7 +182,7 @@ dtt_reason <- function(interval) {
     !og$treat_agrees                       ~ "treat dates disagree",
     is.na(interval)                        ~ "date missing",
     interval > dtt_valid_max_days          ~ "over cap",
-    interval <= 0                          ~ "non-positive",
+    interval < 0                           ~ "non-positive",
     TRUE                                   ~ "ok")
 }
 

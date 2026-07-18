@@ -144,6 +144,53 @@ if ("Endototx" %in% names(og) && "endoscopy_date" %in% names(og)) {
   cat("within 7 days:", round(100 * mean(abs(cmp$diff) <= 7), 1), "%\n")
 }
 
+
+# the reason function blanks any interval <= 0 as "non-positive", which
+# lumps together two very different things: a genuinely impossible negative
+# gap, and a same-day CWT record (treat_start == treat_period_start), which
+# is ordinary for palliative/monitoring periods and costs nothing to tell
+# apart, since tx_date_used and cwt_dtt_date are both still on the object
+if (all(c("tx_date_used", "cwt_dtt_date") %in% names(og))) {
+  cat("\nsplitting non-positive into exactly-zero vs genuinely negative\n")
+  og %>%
+    filter(dtt_to_tx_reason == "non-positive") %>%
+    mutate(raw_gap = as.integer(tx_date_used - cwt_dtt_date),
+           kind = if_else(raw_gap == 0, "same day (0)", "negative")) %>%
+    count(kind) %>%
+    mutate(pct = round(100 * n / sum(n), 1)) %>%
+    as.data.frame() %>%
+    print(row.names = FALSE)
+  
+  cat("\nsame-day share of non-positive, by stage\n")
+  og %>%
+    filter(dtt_to_tx_reason == "non-positive") %>%
+    mutate(raw_gap = as.integer(tx_date_used - cwt_dtt_date),
+           stage_grp = if_else(.data[[stage_var]] %in% c(4, 40:43) |
+                                 is.na(.data[[stage_var]]), "4/missing", "1-3"),
+           kind = if_else(raw_gap == 0, "same day (0)", "negative")) %>%
+    count(stage_grp, kind) %>%
+    group_by(stage_grp) %>%
+    mutate(pct = round(100 * n / sum(n), 1)) %>%
+    ungroup() %>%
+    as.data.frame() %>%
+    print(row.names = FALSE)
+}
+
+# the Maintxtype gap: patients the registry's own classification found a
+# treatment for, that our tx_pathway calls "No treatment recorded". Pull the
+# raw registry date fields for a sample, to see which one is actually blank
+if (all(c("Maintxtype", "surgery_date", "sact_date", "rt_date",
+          "emresd_date") %in% names(og))) {
+  cat("\nsample: Maintxtype found something, ours says no treatment\n")
+  og %>%
+    filter(tx_pathway == "No treatment recorded", !is.na(Maintxtype)) %>%
+    select(patient_pseudo_id, Maintxtype, surgery_date, sact_date, rt_date,
+           emresd_date, cwt_treat_date, cwt_modality) %>%
+    slice_sample(n = min(15, nrow(.))) %>%
+    as.data.frame() %>%
+    print(row.names = FALSE)
+}
+
 cat("\nsample non-positive rows, stage 4 or missing\n")
 og %>%
   filter(dtt_to_tx_reason == "non-positive",
