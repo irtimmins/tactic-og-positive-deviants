@@ -53,13 +53,13 @@ pw <- og %>%
     rt_date       = as_date(rt_first_date),
     endoscopy_date = as_date(endodateHES),
     diagnosis_date = as_date(diagnosisdate),
-
+    
     surg_curative = surgintent == 1,
     rt_curative   = rt_first_intent %in% c(1L, 2L, 3L, 5L),
     rt_definitive = rt_first_intent %in% c(1L, 2L),
     rt_palliative = rt_first_intent == 11L,
     sact_palliative = sact_first_intent_pall == 1L,
-
+    
     surgery_provider = as.character(surgery_trust),
     rt_provider      = as.character(rt_first_trust),
     emresd_provider  = as.character(EMR_ESDtrustHES))
@@ -92,7 +92,7 @@ pw <- pw %>%
     rt_before_surgery   = had_rt   & had_surgery & rt_date   < surgery_date,
     rt_after_surgery    = had_rt   & had_surgery & rt_date   > surgery_date,
     concurrent_chemo_rt = had_sact & had_curative_rt &
-                          abs(as.integer(sact_date - rt_date)) <= 14L)
+      abs(as.integer(sact_date - rt_date)) <= 14L)
 
 # -----------------------------------------------------------------------------
 # tx_pathway - first matching rule wins
@@ -102,33 +102,33 @@ pw <- pw %>%
 pw <- pw %>%
   mutate(tx_pathway = case_when(
     had_emresd & !had_surgery & !had_sact & !concurrent_chemo_rt
-      ~ "EMR/ESD only",
+    ~ "EMR/ESD only",
     had_emresd & had_surgery
-      ~ "EMR/ESD then surgery",
+    ~ "EMR/ESD then surgery",
     had_surgery & sact_before_surgery & rt_before_surgery
-      ~ "Surgery + neoadjuvant chemoRT",
+    ~ "Surgery + neoadjuvant chemoRT",
     had_surgery & sact_before_surgery & !rt_before_surgery
-      ~ "Surgery + neoadjuvant chemo",
+    ~ "Surgery + neoadjuvant chemo",
     had_surgery & rt_before_surgery & !sact_before_surgery
-      ~ "Surgery + neoadjuvant RT",
+    ~ "Surgery + neoadjuvant RT",
     had_surgery & sact_after_surgery & !sact_before_surgery
-      ~ "Surgery + adjuvant chemo",
+    ~ "Surgery + adjuvant chemo",
     had_surgery & !had_sact & !concurrent_chemo_rt
-      ~ "Surgery only",
+    ~ "Surgery only",
     had_surgery
-      ~ "Surgery + other",
+    ~ "Surgery + other",
     !had_surgery & had_curative_rt & had_chemo_for_chemort
-      ~ "Definitive chemoRT",
+    ~ "Definitive chemoRT",
     !had_surgery & had_curative_rt & !had_chemo_for_chemort
-      ~ "Curative RT only",
+    ~ "Curative RT only",
     !had_surgery & had_palliative_rt & had_sact
-      ~ "Palliative chemo + RT",
+    ~ "Palliative chemo + RT",
     !had_surgery & had_sact & !had_curative_rt
-      ~ "SACT only",
+    ~ "SACT only",
     !had_surgery & had_palliative_rt & !had_sact
-      ~ "Palliative RT only",
+    ~ "Palliative RT only",
     TRUE
-      ~ "No treatment recorded"))
+    ~ "No treatment recorded"))
 
 # -----------------------------------------------------------------------------
 # first_tx_date - the clock-stop date for the pathway
@@ -167,10 +167,10 @@ pw <- pw %>%
     tx_pathway %in% c("EMR/ESD only", "EMR/ESD then surgery",
                       "Surgery + neoadjuvant chemo", "Surgery + adjuvant chemo",
                       "Surgery only", "Surgery + other")
-      ~ str_sub(coalesce(surgery_provider, emresd_provider), 1, 3),
+    ~ str_sub(coalesce(surgery_provider, emresd_provider), 1, 3),
     tx_pathway %in% c("Surgery + neoadjuvant chemoRT", "Surgery + neoadjuvant RT",
                       "Definitive chemoRT", "Curative RT only")
-      ~ str_sub(rt_provider, 1, 3),
+    ~ str_sub(rt_provider, 1, 3),
     TRUE ~ NA_character_))
 
 # -----------------------------------------------------------------------------
@@ -183,17 +183,10 @@ pw %>%
   as.data.frame() %>%
   print(row.names = FALSE)
 
-keep_cols <- c("patient_pseudo_id", "tumour_site",
-  "diagnosis_date", "endoscopy_date",
-  "emresd_date", "surgery_date", "sact_date", "rt_date",
-  "had_emresd", "had_surgery", "had_curative_surgery", "had_sact", "had_rt",
-  "had_curative_rt", "had_palliative_rt",
-  "sact_before_surgery", "sact_after_surgery", "rt_before_surgery",
-  "concurrent_chemo_rt",
-  "tx_pathway", "first_tx_date", "tx_trust",
-  "surgery_provider", "rt_provider", "emresd_provider")
-keep_cols <- intersect(keep_cols, names(pw))
-
-saveRDS(pw[keep_cols], f_cohort_pathway)
+# carry the whole registry record through rather than narrowing to a fixed
+# list of columns. pw is og with the pathway fields mutated on, so nothing
+# from the site cohort - stage, route, comorbidity, demographics - is lost,
+# and the case-mix checks downstream (and 03) can use any of it.
+saveRDS(pw, f_cohort_pathway)
 cat("\nSaved", f_cohort_pathway, "\n")
 cat("02 complete. Next: 03 merges the CWT records for the decision-to-treat date.\n")
