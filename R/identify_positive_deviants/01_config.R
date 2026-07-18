@@ -42,11 +42,12 @@ flow_csv       <- file.path(out_dir, "pd_flow.csv")            # patient attriti
 hosp_excl_csv  <- file.path(out_dir, "pd_hospitals_excluded.csv")
 
 # analysis window ------------------------------------------------------------
-# the analysis uses the most recent stretch of diagnoses. window_end defaults to
-# the latest endoscopy-anchored diagnosis in the cohort; set it explicitly to fix
-# the window (e.g. as.Date("2024-12-31")).
-window_months <- 24
-window_end    <- NA
+# the diagnosis-date window is NOT set here. sotn_cohort (applied in 02) already
+# carries the SoTN audit period as part of its own definition, so the analysis
+# window is whatever period sotn_cohort represents - no separate window filter
+# is applied on top of it. A future, different reporting period (e.g. Jan 2023
+# to Mar 2025) would replace the sotn_cohort restriction, not add to it; see the
+# commented-out block in 02_build_cohort.R where that would go.
 
 # inclusion: which treatment pathways count as curative --------------------
 # The tx_pathway values (from the merge stage) that define the curative cohort.
@@ -95,9 +96,11 @@ site_trust_map_csv <- file.path(dir_ref, "site_trust_map.csv")
 # only sites whose operating trust is a recognised OG-cancer diagnoser are
 # analysed. The list is the NOGCA State of the Nation data-quality table (English
 # NHS trusts with recorded OG diagnoses), read from valid_trusts_csv - a file
-# with a trust_code column, prepared from the SoTN workbook. If the file is
-# absent the restriction is skipped with a warning, so the pipeline still runs.
-valid_trusts_csv <- file.path(base_dir, "valid_diagnosing_trusts.csv")
+# with a trust_code column, prepared from the SoTN workbook. Kept in dir_ref
+# alongside the other reference lookups (it is a general lookup, not specific to
+# a single analysis run). If the file is absent the restriction is skipped with
+# a warning, so the pipeline still runs.
+valid_trusts_csv <- file.path(dir_ref, "valid_diagnosing_trusts.csv")
 
 # outcome --------------------------------------------------------------------
 # time from diagnostic endoscopy to the decision to treat, in days. The merge

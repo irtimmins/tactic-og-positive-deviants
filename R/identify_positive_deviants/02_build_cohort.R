@@ -36,37 +36,38 @@ fc <- function(step, d, n_hosp = NA_integer_) {
 }
 fc("All patients in the CWT-merged cohort", og)
 
-# analysis window ------------------------------------------------------------
-# the analysis uses the most recent stretch of diagnoses. window_end defaults to
-# the latest endoscopy-anchored diagnosis in the cohort; set it explicitly to fix
-# the window (e.g. as.Date("2024-12-31")).
-og <- og %>% mutate(anchor_date = as.Date(anchor_date))
-end_date   <- if (is.na(window_end)) max(og$anchor_date, na.rm = TRUE) else as.Date(window_end)
-start_date <- end_date %m-% months(window_months) %m+% days(1)
-
-# future option: a fixed, precise diagnosis window rather than "the last N
-# months". Not applied yet - left here, commented out, as a marker for when the
-# analysis moves to a specific reporting period. Uncomment and set window_months
-# to NA (or just replace the two lines above) when that decision is made.
-#   start_date <- as.Date("2023-01-01")
-#   end_date   <- as.Date("2025-03-31")
-
-cat(sprintf("window: %s to %s\n", start_date, end_date))
-
 # main audit cohort -----------------------------------------------------------
 # sotn_cohort flags the registry's own audit-eligible cohort (State of the
 # Nation exclusions already applied - stage, route, DCO and similar validity
-# checks at the registry level). Restricting to it here, before anything else,
-# means every later exclusion count is relative to a population already agreed
-# to be legitimately diagnosed OG cancer.
+# checks at the registry level). It also carries its own diagnosis-date window
+# (the SoTN audit period), so restricting to it here is itself a date
+# restriction. Deliberately no separate rolling-window filter is applied on top
+# of this: doing so would be a second, different date restriction that can cut
+# patients sotn_cohort already includes, for no analytic reason. If a different
+# reporting period is wanted later, it should replace sotn_cohort's restriction,
+# not stack on top of it - see the note below.
+og <- og %>% mutate(anchor_date = as.Date(anchor_date))
 df <- og %>% filter(sotn_cohort == 1)
 fc("Main audit cohort (sotn_cohort == 1)", df)
 
-# window -----------------------------------------------------------------
-df <- df %>% filter(!is.na(anchor_date), anchor_date >= start_date,
-                    anchor_date <= end_date)
-fc(sprintf("Diagnosed %s to %s", format(start_date, "%b %Y"),
-           format(end_date, "%b %Y")), df)
+# the date range actually present, used only to build the season / calendar-year
+# covariates below (quarter dummies, and an earlier/later half split for the
+# yr_late term) - not to exclude anyone. Taken from the sotn_cohort-restricted
+# data itself, so it reflects whatever period sotn_cohort represents.
+start_date <- min(df$anchor_date, na.rm = TRUE)
+end_date   <- max(df$anchor_date, na.rm = TRUE)
+cat(sprintf("diagnosis dates present (sotn_cohort): %s to %s\n", start_date, end_date))
+
+# future option: restricting to a specific, different reporting period (e.g.
+# Jan 2023 to Mar 2025) instead of relying on sotn_cohort's own window. Not
+# applied yet - left here, commented out, as a marker for when that decision is
+# made. If uncommented, this should REPLACE the sotn_cohort filter above (or be
+# combined deliberately), not sit alongside it as an extra cut.
+#   start_date <- as.Date("2023-01-01")
+#   end_date   <- as.Date("2025-03-31")
+#   df <- df %>% filter(anchor_date >= start_date, anchor_date <= end_date)
+#   fc(sprintf("Diagnosed %s to %s", format(start_date, "%b %Y"),
+#              format(end_date, "%b %Y")), df)
 
 # curative pathway -----------------------------------------------------------
 # flag the held-out pathway first, so its count is reported before it is dropped,
@@ -191,27 +192,29 @@ df <- df %>%
     agediag = as.numeric(age),
     male    = as.integer(gender == 1),
     sexf    = factor(gender, levels = c(1, 2), labels = c("Male", "Female")),
-
+    
     cci_n_conditions = as.numeric(rcs_ch_score),
     cci_strata = factor(ifelse(cci_n_conditions >= 2, "2+", "0-1"),
                         levels = c("0-1", "2+")),
-
+    
     stage = factor(stage_RR, levels = c(1, 2, 3), labels = c("1", "2", "3")),
     stage_2 = as.integer(stage == "2"),
     stage_3 = as.integer(stage == "3"),
-
+    
     eth = factor(ethnicity_grp, levels = 1:5,
                  labels = c("White", "Mixed", "Asian", "Black", "Other")),
-
+    
     imd_q = as.integer(imd_2019_RR),
     imd   = factor(imd_q, levels = 1:5),
-
+    
     ydiag = as.integer(diagnosis_year),
-
+    
     canalliance = as.character(diagnosis_alliance),
-
-    # window halves for the calendar-year term and season dummies
-    mid_date = start_date %m+% months(window_months / 2),
+    
+    # calendar-year half (for yr_late) and season dummies, split on the actual
+    # midpoint of the diagnosis dates present - not on window_months, since the
+    # window is no longer fixed by that setting (see the sotn_cohort note above)
+    mid_date = start_date + floor(as.numeric(end_date - start_date) / 2),
     period   = factor(ifelse(anchor_date < mid_date, "first", "second"),
                       levels = c("first", "second")),
     yr_late  = as.integer(period == "second"),
