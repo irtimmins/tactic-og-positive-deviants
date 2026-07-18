@@ -38,7 +38,7 @@ if (!exists("dir_transfer"))
 # off, so the log stays open for the whole run and still closes cleanly if a
 # step errors partway through.
 run_og_build <- function() {
-  dir_build <- "R/build_og_site"
+  dir_build <- "R/derive_5_digit_site_code"
   step <- function(file) {
     cat("\n========== ", file, " ==========\n", sep = "")
     source(file.path(dir_build, file), local = new.env())
@@ -64,8 +64,11 @@ run_og_build <- function() {
   cat("\nBuild complete:", file.path(dir_out, "og_cohort_site.rds"), "\n")
   
   if (!is.null(dir_transfer)) {
-    diag_files <- file.path(dir_out, c("diag_field_effect.csv",
-                                       "diag_snomed_topography_conflicts.csv", "diag_trust_vs_tumour_picks.csv"))
+    # .txt rather than .csv: the transfer path appends an encrypted footer to
+    # .csv files, which leaves the content readable but the file broken for
+    # anything that reads to the end. See the note in 03.
+    diag_files <- file.path(dir_out, c("diag_field_effect.txt",
+                                       "diag_snomed_topography_conflicts.txt", "diag_trust_vs_tumour_picks.txt"))
     present <- file.exists(diag_files)
     moved <- if (any(present))
       file.copy(diag_files[present], dir_transfer, overwrite = TRUE) else logical(0)

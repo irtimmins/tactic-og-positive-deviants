@@ -26,11 +26,22 @@
 # Run as part of 00_master, after 02.
 # =============================================================================
 
-source("R/build_og_site/01_define_parameters.R")
+source("R/derive_5_digit_site_code/01_define_parameters.R")
 
-f_diag_field_effect <- file.path(dir_out, "diag_field_effect.csv")
-f_diag_conflicts    <- file.path(dir_out, "diag_snomed_topography_conflicts.csv")
-f_diag_trust_vs_tum <- file.path(dir_out, "diag_trust_vs_tumour_picks.csv")
+# Written as tab-separated .txt, not .csv, on purpose. Something on the server's
+# transfer path appends a few kilobytes of encrypted footer to .csv files - the
+# content survives intact but anything reading to the end of the file chokes on
+# the tail. Plain .txt goes through untouched, which is why the build log has
+# always arrived readable. Tab-separated so it still opens straight into a
+# spreadsheet if you want it there.
+f_diag_field_effect <- file.path(dir_out, "diag_field_effect.txt")
+f_diag_conflicts    <- file.path(dir_out, "diag_snomed_topography_conflicts.txt")
+f_diag_trust_vs_tum <- file.path(dir_out, "diag_trust_vs_tumour_picks.txt")
+
+write_diag <- function(df, path) {
+  write.table(df, path, sep = "\t", quote = FALSE, row.names = FALSE,
+              fileEncoding = "ASCII")
+}
 
 if (!exists("read_rapid"))
   read_rapid <- function() read_dta(path_rapid_dta)
@@ -42,6 +53,11 @@ if (!exists("read_snomed_map"))
   read_snomed_map <- function() {
     if (!file.exists(f_snomed_map)) return(NULL)
     read.csv(f_snomed_map, colClasses = "character")
+  }
+if (!exists("read_site_trust_map"))
+  read_site_trust_map <- function() {
+    if (!file.exists(f_site_trust_map)) return(NULL)
+    read.csv(f_site_trust_map, colClasses = "character")
   }
 
 section <- function(letter, title) {
@@ -87,13 +103,113 @@ cosd <- cosd_raw %>%
     site_ok     = is_site_code(site_raw),
     same_tumour = !is.na(row_site3) & !is.na(reg_site3) & row_site3 == reg_site3,
     not_og      = !is.na(row_site3) & !row_site3 %in% og_sites,
-    site_trust3 = str_sub(site_raw, 1, 3),
-    trust_hit   = !is.na(site_trust3) & !is.na(reg_trust3) &
-      site_trust3 == reg_trust3,
     morph_hit   = !is.na(cosd_morph4) & !is.na(reg_morph4) &
       cosd_morph4 == reg_morph4)
 
+# resolve each site's trust the same way 02 does - from the ODS map if present,
+# from the first three characters if not - so these diagnostics describe the same
+# choice the build made
+site_trust_map <- read_site_trust_map()
+if (!is.null(site_trust_map)) {
+  trust_of_site <- site_trust_map %>%
+    mutate(site_raw = site_code, ods_trust = parent_trust) %>%
+    select(site_raw, ods_trust)
+  cosd <- cosd %>%
+    left_join(trust_of_site, by = "site_raw") %>%
+    mutate(site_trust3 = if_else(is.na(ods_trust),
+                                 str_sub(site_raw, 1, 3), ods_trust))
+} else {
+  cosd <- cosd %>% mutate(site_trust3 = str_sub(site_raw, 1, 3))
+}
+cosd <- cosd %>%
+  mutate(trust_hit = !is.na(site_trust3) & !is.na(reg_trust3) &
+           site_trust3 == reg_trust3)
+
 usable <- cosd %>% filter(site_ok) %>% filter(!(not_og & drop_non_og_rows))
+
+# =============================================================================
+section("1", "The problem, and how each patient is resolved")
+# =============================================================================
+# Written to be read aloud to someone who has not seen the code. It states the
+# task, the obstacle, and then sorts every patient into exactly one outcome, so
+# the whole approach can be seen at a glance and defended.
+
+cat(
+  "The task: give every patient the hospital where they were diagnosed.\n\n",
+  "The registry already records the trust that made the diagnosis, but a trust\n",
+  "runs several hospitals, and the analysis needs the hospital. The hospital is\n",
+  "recorded in a separate source (COSD) as a site code. So the task is to take\n",
+  "each patient's site code(s) from COSD and settle on the one hospital where the\n",
+  "diagnosis was made.\n\n",
+  "Three things make this harder than a straight lookup:\n",
+  "  - a patient often has more than one COSD row, and the rows can carry\n",
+  "    different site codes\n",
+  "  - some of those rows are not about this cancer at all - they are the\n",
+  "    patient's other conditions - and their sites must not be used\n",
+  "  - a site code's trust is usually its first three characters, but not always,\n",
+  "    so 'does this hospital belong to the diagnosing trust' cannot be answered\n",
+  "    from the code alone. The ODS lookup answers it properly.\n\n",
+  "Every patient is placed in exactly one of the outcomes below.\n", sep = "")
+
+# rebuild the same per-patient picture the build settles on, but keep the steps
+# visible so each patient can be labelled by how far the evidence got them
+per_patient_story <- usable %>%
+  group_by(patient_pseudo_id) %>%
+  summarise(
+    codes_all        = n_distinct(site_raw),
+    codes_in_trust   = n_distinct(site_raw[trust_hit]),
+    codes_confirmed  = n_distinct(site_raw[same_tumour]),
+    # a code that both sits in the diagnosing trust and is confirmed by the
+    # tumour is the strongest evidence there is
+    codes_trust_and_confirmed = n_distinct(site_raw[trust_hit & same_tumour]),
+    .groups = "drop") %>%
+  left_join(select(og_cohort, patient_pseudo_id, site_dx_found),
+            by = "patient_pseudo_id")
+
+story <- per_patient_story %>%
+  mutate(outcome = case_when(
+    codes_all == 1 ~
+      "1  one hospital offered, nothing to resolve",
+    codes_in_trust == 1 ~
+      "2  several offered, but only one is in the diagnosing trust",
+    codes_in_trust >= 2 & codes_trust_and_confirmed == 1 ~
+      "3  several in the trust, tumour information singles one out",
+    codes_in_trust >= 2 & codes_trust_and_confirmed >= 2 ~
+      "4  several in the trust and confirmed - tumour cannot separate them",
+    codes_in_trust >= 2 ~
+      "5  several in the trust, no tumour information to separate them",
+    codes_in_trust == 0 ~
+      "6  none of the offered hospitals is in the diagnosing trust",
+    TRUE ~ "7  other"))
+
+cat("\nEvery patient who offered a usable hospital code:", nrow(story), "\n\n")
+story %>%
+  count(outcome, name = "patients") %>%
+  mutate(pct = round(100 * patients / sum(patients), 1)) %>%
+  arrange(outcome) %>%
+  show()
+
+cat("\nIn words:\n",
+    "  1-2  settled with no need for tumour information: the trust alone leaves\n",
+    "       exactly one hospital standing.\n",
+    "  3    the hard-won ones: several hospitals in the trust, and it is the\n",
+    "       tumour record that identifies which. This is where linking the tumour\n",
+    "       information earns its place.\n",
+    "  4    genuinely undecidable from the data: more than one hospital in the\n",
+    "       trust, all consistent with the tumour. A tie-break rule or a hospital\n",
+    "       list is the only way to choose.\n",
+    "  5    several in the trust with nothing to separate them at all.\n",
+    "  6    the offered hospitals sit under a different trust than the registry\n",
+    "       names - treated as unconfirmed rather than trusted.\n", sep = "")
+
+uniquely <- story %>%
+  filter(grepl("^[123]", outcome)) %>%
+  nrow()
+cat("\nUniquely identified without guessing:", uniquely, "of", nrow(story),
+    sprintf(" (%.1f%%)\n", 100 * uniquely / nrow(story)))
+needs_rule <- story %>% filter(grepl("^[45]", outcome)) %>% nrow()
+cat("Left needing a tie-break rule or hospital list:", needs_rule,
+    sprintf(" (%.1f%%)\n", 100 * needs_rule / nrow(story)))
 
 # =============================================================================
 section("A", "Amanda's question: what survives trust-matching")
@@ -202,7 +318,7 @@ field_effect <- field_effect %>%
 
 cat("Patients whose chosen code changes as each field is added:\n")
 show(field_effect)
-write.csv(field_effect, f_diag_field_effect, row.names = FALSE)
+write_diag(field_effect, f_diag_field_effect)
 cat("\nRead this as the value of each field: a step that moves few patients is",
     "\ndoing little that trust and row-count were not already doing.\n")
 
@@ -235,7 +351,7 @@ cat("SNOMED-labelled rows whose SNOMED site and topography site differ:",
     sum(snomed_vs_topog$rows), "rows,", nrow(snomed_vs_topog), "distinct codes\n")
 if (nrow(snomed_vs_topog)) {
   show(head(snomed_vs_topog, 15))
-  write.csv(snomed_vs_topog, f_diag_conflicts, row.names = FALSE)
+  write_diag(snomed_vs_topog, f_diag_conflicts)
 }
 
 # Second, patients where the tumour-confirmed code and the trust-matched code are
@@ -262,7 +378,7 @@ if (nrow(conflict)) {
            trust     = map_chr(trust_code, ~ paste(.x, collapse = "|"))) %>%
     select(patient_pseudo_id, confirmed, trust) %>%
     head(200) %>%
-    write.csv(f_diag_trust_vs_tum, row.names = FALSE)
+    write_diag(f_diag_trust_vs_tum)
 }
 
 # =============================================================================

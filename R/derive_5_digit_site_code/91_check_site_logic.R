@@ -18,18 +18,24 @@
 #      since that is where the analysis ends up.
 #
 # Run from the project root:
-#   Rscript R/build_og_site/91_check_site_logic.R
+#   Rscript R/derive_5_digit_site_code/91_check_site_logic.R
 # =============================================================================
 
-suppressPackageStartupMessages(library(tidyverse))
-dir_build <- "R/build_og_site"
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(stringr)
+  library(tibble)
+  library(purrr)
+  library(magrittr)   # for %>%
+})
+dir_build <- "R/derive_5_digit_site_code"
 
 # This script points dir_out at a temporary folder and hands 02 made-up data.
 # Put the session back as it was on the way out, however it exits, so a later
 # build in the same session cannot pick up a leftover setting.
 .saved <- mget(c("dir_out", "dir_raw", "dir_ref", "read_rapid", "read_cosd",
-                 "read_snomed_map", "site_max_rank", "snomed_from_data",
-                 "drop_non_og_rows"),
+                 "read_snomed_map", "read_site_trust_map", "site_max_rank",
+                 "snomed_from_data", "drop_non_og_rows"),
                ifnotfound = list(NULL), envir = globalenv())
 .saved_opt <- options(og_min_input_rows = 1L)   # the examples are tiny on purpose
 restore_session <- function() {
@@ -50,13 +56,14 @@ expect <- function(label, cond) {
 
 # run 02 over the given data and hand back the cohort it makes
 run_build <- function(rapid, cosd, max_rank = 3L, use_snomed = TRUE,
-                      drop_non_og = TRUE, map = NULL) {
+                      drop_non_og = TRUE, map = NULL, site_trust = NULL) {
   assign("dir_out", tempfile("og_check_"), envir = globalenv())
   assign("dir_raw", tempdir(), envir = globalenv())
   assign("dir_ref", tempdir(), envir = globalenv())
   assign("read_rapid", function() rapid, envir = globalenv())
   assign("read_cosd",  function() cosd,  envir = globalenv())
   assign("read_snomed_map", function() map, envir = globalenv())
+  assign("read_site_trust_map", function() site_trust, envir = globalenv())
   assign("site_max_rank", max_rank, envir = globalenv())
   assign("snomed_from_data", use_snomed, envir = globalenv())
   assign("drop_non_og_rows", drop_non_og, envir = globalenv())
@@ -315,6 +322,49 @@ expect("a number with no version given is still looked up",
        as.character(out_unk$site_dx_basis[
          out_unk$patient_pseudo_id == "e11_snomed_own"]) == "tumour confirmed")
 
+cat("\n  the ODS site-to-trust map\n")
+
+# e01_clean offers site RJ101, whose first three characters RJ1 are the
+# registry's diagnosing trust - so without any map it already counts as a trust
+# match. Build an ODS map that says RJ101 is actually operated by a DIFFERENT
+# trust, RX9. Now the first three characters no longer decide it, and the site
+# should no longer count as matching the trust.
+map_moved <- tibble(site_code = "RJ101", parent_trust = "RX9",
+                    trust_is_prefix = "FALSE", parent_from_ods = "TRUE",
+                    status = "Active", is_hospital_site = "TRUE",
+                    record_class = "RC2", primary_role = "RO198",
+                    predecessor = NA_character_, found = "TRUE")
+out_moved <- run_build(rapid_eg, cosd_eg, use_snomed = FALSE,
+                       site_trust = map_moved)
+vmoved <- function(id, col) out_moved[[col]][out_moved$patient_pseudo_id == id]
+expect("the ODS map's trust is used as the site's trust",
+       vmoved("e01_clean", "site_dx_trust") == "RX9")
+expect("a site ODS moves out of the registry's trust stops matching it",
+       as.character(vmoved("e01_clean", "site_dx_basis")) == "no support")
+
+# and the opposite: a site whose first three characters are NOT the registry
+# trust, but which ODS says the trust operates, should now count as a match.
+# e16_no_trust's registry has no trust, so use a fresh minimal case.
+map_rescue <- tibble(site_code = "RQQ02", parent_trust = "RJ1",
+                     trust_is_prefix = "FALSE", parent_from_ods = "TRUE",
+                     status = "Active", is_hospital_site = "TRUE",
+                     record_class = "RC2", primary_role = "RO198",
+                     predecessor = NA_character_, found = "TRUE")
+# e09_c16_on_c15 is a C15 patient in trust RJ1 whose only code is RQQ02 (prefix
+# RQQ). Without the map that code does not match the trust; with the map saying
+# RQQ02 is run by RJ1, it should.
+out_rescue <- run_build(rapid_eg, cosd_eg, use_snomed = FALSE,
+                        site_trust = map_rescue)
+vres <- function(id, col) out_rescue[[col]][out_rescue$patient_pseudo_id == id]
+expect("a site ODS places inside the registry's trust now matches it",
+       as.character(vres("e09_c16_on_c15", "site_dx_basis")) == "trust matches")
+
+expect("with no ODS map, the trust is still the first three characters",
+       {
+         o <- run_build(rapid_eg, cosd_eg, use_snomed = FALSE, site_trust = NULL)
+         o$site_dx_trust[o$patient_pseudo_id == "e01_clean"] == "RJ1"
+       })
+
 # the field arriving as text, which is what we have asked NDRS for
 cosd_txt <- cosd_eg %>%
   mutate(diagnosis_snomedct = if_else(is.na(diagnosis_snomedct), NA_character_,
@@ -364,8 +414,11 @@ if (run_sim_check) {
   truth <- readRDS(file.path(dir_sim, "site_truth.rds"))
   sim_map <- read.csv(file.path(dir_sim, "snomed_og_lookup.csv"),
                       colClasses = "character")
+  sim_site_trust <- read.csv(file.path(dir_sim, "site_trust_map.csv"),
+                             colClasses = "character")
   
-  sim_out <- run_build(sim_rapid, sim_cosd, map = sim_map)
+  sim_out <- run_build(sim_rapid, sim_cosd, map = sim_map,
+                       site_trust = sim_site_trust)
   
   expect("every made-up registry row survives", nrow(sim_out) == nrow(sim_rapid))
   expect("one row per patient comes out", !anyDuplicated(sim_out$patient_pseudo_id))
@@ -373,9 +426,20 @@ if (run_sim_check) {
          all(nchar(na.omit(sim_out$site_dx_code)) == 5))
   expect("no default code escapes",
          !any(na.omit(sim_out$site_dx_code) %in% c("89997", "89999", "X9999")))
-  expect("the trust is the first three characters of the site",
-         all(substr(na.omit(sim_out$site_dx_code), 1, 3) ==
-               na.omit(sim_out$site_dx_trust)))
+  # the trust is the site's first three characters, except where the ODS map
+  # deliberately places a site under a different trust - so the rule is that the
+  # trust is either the prefix or what the ODS map says
+  moved_sites <- sim_site_trust %>%
+    filter(trust_is_prefix == "FALSE") %>%
+    select(site_dx_code = site_code, ods_trust = parent_trust)
+  trust_check <- sim_out %>%
+    filter(!is.na(site_dx_code)) %>%
+    left_join(moved_sites, by = "site_dx_code") %>%
+    mutate(ok = if_else(is.na(ods_trust),
+                        substr(site_dx_code, 1, 3) == site_dx_trust,
+                        site_dx_trust == ods_trust))
+  expect("the trust is the site prefix, or the ODS trust where ODS moved it",
+         all(trust_check$ok))
   
   scored <- sim_out %>%
     select(patient_pseudo_id, site_dx_code, site_dx_basis, site_dx_found) %>%
@@ -426,23 +490,26 @@ if (run_sim_check) {
   
   # 03 does no work of its own - it re-reads what 02 wrote and reports on it - so
   # the check here is only that it runs to the end and writes its review files,
-  # against both a build with a SNOMED map and one without.
+  # against a build with the maps and one without.
   cat("\n  diagnostics script\n")
-  run_diag <- function(map) {
+  run_diag <- function(map, site_trust) {
     d <- tempfile("og_diag_"); dir.create(d)
     assign("dir_out", d, envir = globalenv())
     assign("read_rapid", function() sim_rapid, envir = globalenv())
     assign("read_cosd",  function() sim_cosd,  envir = globalenv())
     assign("read_snomed_map", function() map, envir = globalenv())
+    assign("read_site_trust_map", function() site_trust, envir = globalenv())
     # 03 reads the cohort 02 wrote, so run 02 into the same folder first
     invisible(capture.output(suppressMessages(
       sys.source(file.path(dir_build, "02_add_site_of_diagnosis.R"), new.env()))))
     invisible(capture.output(suppressMessages(
       sys.source(file.path(dir_build, "03_site_diagnostics.R"), new.env()))))
-    file.exists(file.path(d, "diag_field_effect.csv"))
+    file.exists(file.path(d, "diag_field_effect.txt"))
   }
-  expect("the diagnostics run through with a SNOMED map", run_diag(sim_map))
-  expect("the diagnostics run through with no SNOMED map", run_diag(NULL))
+  expect("the diagnostics run through with both maps present",
+         run_diag(sim_map, sim_site_trust))
+  expect("the diagnostics run through with neither map",
+         run_diag(NULL, NULL))
 }
 
 # =============================================================================

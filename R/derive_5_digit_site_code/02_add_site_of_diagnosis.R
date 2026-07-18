@@ -23,7 +23,7 @@
 #         Data/OG/og_cohort_site.rds               (the registry plus the site)
 # =============================================================================
 
-source("R/build_og_site/01_define_parameters.R")
+source("R/derive_5_digit_site_code/01_define_parameters.R")
 
 # read_rapid() and read_cosd() are here so the checking script can hand this
 # script made-up data instead of the real files: define either one before
@@ -42,6 +42,15 @@ if (!exists("read_snomed_map"))
   read_snomed_map <- function() {
     if (!file.exists(f_snomed_map)) return(NULL)
     read.csv(f_snomed_map, colClasses = "character")
+  }
+
+# the ODS site-to-trust map from R/reference/20_fetch_site_trust_map.R, if it is
+# there. Without it the build falls back to reading the trust as the first three
+# characters of the site code, which is right for most sites but not all.
+if (!exists("read_site_trust_map"))
+  read_site_trust_map <- function() {
+    if (!file.exists(f_site_trust_map)) return(NULL)
+    read.csv(f_site_trust_map, colClasses = "character")
   }
 
 # -----------------------------------------------------------------------------
@@ -210,14 +219,50 @@ usable <- cosd %>%
   filter(!(not_og & drop_non_og_rows))
 
 # -----------------------------------------------------------------------------
+# The trust each site sits under
+# -----------------------------------------------------------------------------
+# A site code belongs to a trust. Most of the time that trust is the first three
+# characters of the code, but not always - some sites are run by a trust whose
+# code is not their own first three characters, usually after a merger. Which
+# trust a site really belongs to matters here, because a site is trusted more
+# when it agrees with the trust the registry says made the diagnosis.
+#
+# R/reference/20_fetch_site_trust_map.R asks ODS - the NHS body that assigns
+# these codes - for the real operating trust of every site code in the data, and
+# writes it to a file. If that file is present the real trust is used; if it is
+# not, the build falls back to the first three characters and says so, so the
+# result is never silently worse than it looks.
+site_trust_map <- read_site_trust_map()
+if (!is.null(site_trust_map)) {
+  cat("\nODS site-to-trust map read from", f_site_trust_map, ":",
+      nrow(site_trust_map), "site codes\n")
+  trust_of_site <- site_trust_map %>%
+    mutate(site_raw = site_code, ods_trust = parent_trust) %>%
+    select(site_raw, ods_trust)
+  usable <- usable %>%
+    left_join(trust_of_site, by = "site_raw") %>%
+    mutate(site_trust3 = if_else(is.na(ods_trust),
+                                 str_sub(site_raw, 1, 3), ods_trust))
+  n_via_ods <- sum(!is.na(usable$ods_trust))
+  n_moved   <- sum(!is.na(usable$ods_trust) &
+                     usable$ods_trust != str_sub(usable$site_raw, 1, 3))
+  cat("  rows whose trust ODS confirmed:", n_via_ods, "| of those, rows where",
+      "ODS puts the site under a different trust than its first three",
+      "characters:", n_moved, "\n")
+} else {
+  cat("\nNo ODS site-to-trust map at", f_site_trust_map,
+      "- using the first three characters of each site code as its trust.\n")
+  usable <- usable %>% mutate(site_trust3 = str_sub(site_raw, 1, 3))
+}
+
+# -----------------------------------------------------------------------------
 # Pass 3: choose one code per patient
 # -----------------------------------------------------------------------------
 # One line per patient and site code, carrying the evidence for that code. A code
 # counts as confirmed if any of its rows confirms the tumour; the morphology and
 # the trust are read the same way.
 candidates <- usable %>%
-  mutate(site_trust3 = str_sub(site_raw, 1, 3),
-         morph_hit = !is.na(cosd_morph4) & !is.na(reg_morph4) &
+  mutate(morph_hit = !is.na(cosd_morph4) & !is.na(reg_morph4) &
            cosd_morph4 == reg_morph4,
          trust_hit = !is.na(site_trust3) & !is.na(reg_trust3) &
            site_trust3 == reg_trust3) %>%
@@ -226,6 +271,7 @@ candidates <- usable %>%
             confirmed = any(same_tumour),
             morph_ok  = any(morph_hit),
             trust_ok  = any(trust_hit),
+            site_trust3 = first(site_trust3),
             .groups   = "drop") %>%
   mutate(site_rank = case_when(confirmed ~ 1L,
                                trust_ok  ~ 2L,
@@ -241,7 +287,7 @@ site_lookup <- candidates %>%
           .by_group = TRUE) %>%
   slice(1) %>%
   ungroup() %>%
-  mutate(site_dx_trust     = str_sub(site_dx_code, 1, 3),
+  mutate(site_dx_trust     = site_trust3,
          site_dx_basis     = factor(site_basis_levels[site_rank],
                                     levels = site_basis_levels),
          site_dx_n_codes   = as.integer(site_dx_n_codes),

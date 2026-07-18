@@ -27,7 +27,11 @@
 
 suppressPackageStartupMessages({
   library(haven)
-  library(tidyverse)
+  library(dplyr)
+  library(stringr)
+  library(tibble)
+  library(purrr)
+  library(magrittr)   # for %>%
 })
 
 if (!exists("dir_sim")) dir_sim <- "Data/sim"
@@ -58,10 +62,11 @@ sites_by_trust <- split(sites$site, sites$trust)
 # nothing rather than trust them.
 cancer_sites <- c("C15", "C16", "C18", "C20", "C25", "C34", "C50", "C61", "C64")
 
-snomed_by_site <- map(set_names(cancer_sites), function(s) {
+snomed_by_site <- map(cancer_sites, function(s) {
   base <- 100000000 + 1000 * match(s, cancer_sites)
   sprintf("%.0f", base + c(1, 2, 3))
 })
+names(snomed_by_site) <- cancer_sites
 snomed_sloppy <- c("999000001", "999000002")
 
 # numbers from the older SNOMEDs. They are reused across cancers, so a build
@@ -109,9 +114,19 @@ rapid <- truth %>%
 # which for a C15 patient includes C16.
 in_cosd <- truth %>% slice_sample(prop = 0.845)
 
-cosd <- in_cosd %>%
-  mutate(n_rows = 1L + rbinom(n(), 3, 0.22)) %>%   # mean about 1.62 rows each
-  uncount(n_rows, .id = "row_in_patient") %>%
+in_cosd <- in_cosd %>%
+  mutate(n_rows = 1L + rbinom(n(), 3, 0.22))   # mean about 1.62 rows each
+
+# expand each row n_rows times, and number the copies 1, 2, 3... within each
+# patient - what tidyr::uncount(n_rows, .id = "row_in_patient") would do. Done
+# in base R instead, so this script does not need tidyr for the sake of one
+# call; sequence() gives exactly that 1..n, 1..n, ... numbering.
+idx <- rep(seq_len(nrow(in_cosd)), in_cosd$n_rows)
+cosd <- in_cosd[idx, , drop = FALSE]
+cosd$row_in_patient <- sequence(in_cosd$n_rows)
+rownames(cosd) <- NULL
+
+cosd <- cosd %>%
   mutate(
     row_kind = case_when(
       row_in_patient == 1L ~ "the patient's own tumour",
@@ -212,6 +227,40 @@ sim_map <- tibble(snomed = unlist(snomed_by_site[c("C15", "C16")]),
                   site3 = rep(c("C15", "C16"), each = 3)) %>%
   mutate(icd10_targets = paste0(site3, ".9"))
 write.csv(sim_map, file.path(dir_sim, "snomed_og_lookup.csv"), row.names = FALSE)
+
+# the ODS site-to-trust map R/reference/20_fetch_site_trust_map.R would produce.
+# For most sites the trust is the first three characters; a small number are
+# deliberately placed under a different trust, as happens in real ODS data after
+# a merger, so the build's handling of that case is exercised. A few codes are
+# marked as not hospital sites, and a few as unknown to ODS.
+set.seed(sim_seed + 7)
+all_sites <- sort(unique(sites$site))
+moved <- sample(all_sites, max(1, round(0.02 * length(all_sites))))
+not_hosp <- sample(setdiff(all_sites, moved),
+                   max(1, round(0.01 * length(all_sites))))
+
+sim_site_trust <- tibble(site_code = all_sites) %>%
+  mutate(
+    prefix       = str_sub(site_code, 1, 3),
+    # a moved site is handed to some other trust from the list
+    parent_trust = if_else(site_code %in% moved,
+                           sample(trusts, n(), TRUE), prefix),
+    parent_trust = if_else(parent_trust == prefix & site_code %in% moved,
+                           trusts[(match(prefix, trusts) %% length(trusts)) + 1],
+                           parent_trust),
+    trust_is_prefix  = parent_trust == prefix,
+    parent_from_ods  = !(site_code %in% c(not_hosp)),
+    status           = "Active",
+    is_hospital_site = !(site_code %in% not_hosp),
+    record_class     = if_else(is_hospital_site, "RC2", "RC2"),
+    primary_role     = if_else(is_hospital_site, "RO198", "RO177"),
+    predecessor      = NA_character_,
+    found            = TRUE) %>%
+  select(site_code, name = prefix, parent_trust, trust_is_prefix,
+         parent_from_ods, status, is_hospital_site, record_class,
+         primary_role, predecessor, found)
+write.csv(sim_site_trust, file.path(dir_sim, "site_trust_map.csv"),
+          row.names = FALSE)
 
 cat("Made", nrow(rapid), "registry rows and", nrow(cosd_out), "COSD rows (",
     n_distinct(cosd_out$patient_pseudo_id), "patients ) in", dir_sim, "\n")

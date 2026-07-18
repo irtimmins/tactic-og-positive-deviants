@@ -1,62 +1,20 @@
 # =============================================================================
-# 01  Define parameters
+# 01  Define parameters  -  the five-character site-of-diagnosis build
 # -----------------------------------------------------------------------------
-# Everything the build needs before any data is read: where the files are, what
-# counts as a real site code, how a COSD row is judged to belong to the patient's
-# oesophago-gastric tumour rather than to some other cancer, and how one site is
-# chosen when a patient offers several. Sourced by every later script; it reads
-# and writes nothing itself.
+# The judgement calls specific to this stage: what counts as a real site code,
+# how a COSD row is judged to belong to the patient's oesophago-gastric tumour
+# rather than to some other cancer, and how one site is chosen when a patient
+# offers several. Sourced by 02 and 03.
 #
-# The judgement calls all live here rather than being spread through the build,
-# so they can be read, argued with and changed in one place.
+# The shared paths and helpers - where the files are, tidy_org_code, icd_site3
+# and so on - come from common/paths_and_helpers.R, sourced first below, so they
+# are defined once for the whole project rather than copied into each stage.
+#
+# The judgement calls live here rather than being spread through the build, so
+# they can be read, argued with and changed in one place.
 # =============================================================================
 
-suppressPackageStartupMessages({
-  library(haven)
-  library(tidyverse)
-})
-
-# -----------------------------------------------------------------------------
-# Where the files are
-# -----------------------------------------------------------------------------
-# dir_raw is the folder holding the 20260212 extracts as supplied. dir_out is
-# this project's data folder: everything derived is written there and every later
-# script reads from there. Either can be set before this file is sourced (the
-# checking script points them at temporary folders), so only unset values are
-# filled in with the defaults below.
-# dir_ref holds reference files brought in from outside, such as the SNOMED map
-# fetched by R/reference/10_fetch_snomed_map.R on a machine with internet.
-if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
-if (!exists("dir_out")) dir_out <- "Data/OG"
-if (!exists("dir_ref")) dir_ref <- "Data/reference"
-dir.create(dir_out, recursive = TRUE, showWarnings = FALSE)
-
-# dir_transfer is the one folder on the analysis server that is not encrypted at
-# rest, so it is the only place output meant to leave the server can be written.
-# 00_master.R copies the diagnostics csvs and the build log there. It holds
-# nothing patient-identifying beyond the pseudonymised patient_pseudo_id already
-# used throughout the project, and only ever small summary tables or a capped
-# sample - never a full extract.
-#
-# Defaults to off (NULL). Set dir_transfer <- "S:/..." before sourcing to turn it
-# on for a real run. Leave it NULL, or point it at a scratch folder, for a
-# simulated or test run - otherwise made-up numbers land in the real folder next
-# to real results, which is exactly the mix-up this default is there to prevent.
-if (!exists("dir_transfer")) dir_transfer <- NULL
-if (!is.null(dir_transfer))
-  dir.create(dir_transfer, recursive = TRUE, showWarnings = FALSE)
-
-path_rapid_dta <- file.path(dir_raw,
-                            "20260212_Rapidtumour_linked_2026SOTN_clean_OG_postPT.dta")
-path_cosd_dta  <- file.path(dir_raw,
-                            "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
-path_cwt_dta   <- file.path(dir_raw,
-                            "20260212_all_cwt_rapid_202601_OG.dta")   # for the next step, not this one
-
-f_snomed_map   <- file.path(dir_ref, "snomed_og_lookup.csv")
-
-f_site_lookup  <- file.path(dir_out, "og_site_of_diagnosis_lookup.rds")
-f_cohort_site  <- file.path(dir_out, "og_cohort_site.rds")
+source("R/common/paths_and_helpers.R")
 
 # -----------------------------------------------------------------------------
 # What counts as a site code
@@ -168,10 +126,6 @@ snomed_old_versions <- c(1L, 2L, 3L, 4L)
 # Set drop_non_og_rows to FALSE only to measure what the rule costs.
 if (!exists("drop_non_og_rows")) drop_non_og_rows <- TRUE
 
-# what counts as OG. The same pair the map is cut down to in
-# R/reference/10_fetch_snomed_map.R.
-og_sites <- c("C15", "C16")
-
 # -----------------------------------------------------------------------------
 # Choosing between site codes
 # -----------------------------------------------------------------------------
@@ -196,72 +150,6 @@ og_sites <- c("C15", "C16")
 # everything; 2 leaves the unsupported codes out.
 site_basis_levels <- c("tumour confirmed", "trust matches", "no support")
 if (!exists("site_max_rank")) site_max_rank <- 3L
-
-# -----------------------------------------------------------------------------
-# Small shared jobs
-# -----------------------------------------------------------------------------
-
-# Tidy an organisation code: upper case, drop anything that is not a letter or a
-# digit, and treat an empty string as missing rather than as a value.
-tidy_org_code <- function(x) {
-  x <- str_to_upper(str_trim(as.character(x)))
-  x <- str_replace_all(x, "[^A-Z0-9]", "")
-  na_if(x, "")
-}
-
-# The three-character cancer site from an ICD-O topography. The field usually
-# holds a bare code but sometimes carries the description too ("C155: LOWER THIRD
-# OF OESOPHAGUS"), and occasionally holds filler such as XXXXXX. Take the leading
-# letter-digit-digit and nothing else; anything else becomes missing.
-icd_site3 <- function(x) {
-  x <- str_to_upper(str_trim(as.character(x)))
-  str_extract(x, "^[A-Z][0-9]{2}")
-}
-
-# Morphology as four digits, however it arrives: str4 in COSD, str5 in the
-# registry where the fifth character can be the behaviour.
-morph4 <- function(x) {
-  str_extract(str_trim(as.character(x)), "^[0-9]{4}")
-}
-
-# A SNOMED identifier as text. It is only ever compared with itself and with the
-# map, never used as a number.
-#
-# If the field arrives as text, which is what we have asked NDRS for and what
-# Sarah's bowel extract already has, it is used as it stands. Older extracts
-# have it as a Stata double, which cannot hold the longest SNOMED numbers
-# exactly - anything above about 9e15 is already approximate by the time it
-# reaches us. Those are converted and a warning is printed, because a number
-# that has lost a digit will not match the map and there is nothing this code
-# can do to recover it.
-snomed_id <- function(x) {
-  if (is.character(x)) {
-    x <- str_trim(x)
-    return(if_else(x == "" | x == "." | x == "0", NA_character_, x))
-  }
-  x <- suppressWarnings(as.numeric(x))
-  too_big <- sum(!is.na(x) & x > 2^53)
-  if (too_big)
-    warning(too_big, " SNOMED numbers are too large for the numeric field they ",
-            "arrived in and may have lost precision. Ask for the field as text.",
-            call. = FALSE)
-  ifelse(is.na(x) | x <= 0, NA_character_, sprintf("%.0f", x))
-}
-
-# Stop early and clearly if a file is not the one we think it is. A missing
-# column noticed here saves a puzzling empty result later.
-check_input <- function(df, needed, label, path, min_rows = 1000L) {
-  absent <- setdiff(needed, names(df))
-  if (length(absent))
-    stop(label, " has no ", paste(absent, collapse = ", "), " column.",
-         "\n  - check that ", basename(path), " is the expected file.",
-         call. = FALSE)
-  if (nrow(df) < min_rows)
-    stop(label, " has only ", nrow(df), " rows, expected at least ", min_rows,
-         ".\n  - this looks like a part-read or a test file rather than the real",
-         " one: ", basename(path), call. = FALSE)
-  invisible(TRUE)
-}
 
 cat("01 parameters set: writing to", dir_out,
     "| site codes", site_code_width, "characters",
