@@ -9,7 +9,7 @@
 #   - the site-to-trust map, from the NHS ODS API
 #
 # The site map needs the list of site codes that run_0_list_codes.R produced on
-# the server. Copy that list (site_codes_to_lookup.csv) into Data/reference here
+# the server. Copy that list (site_codes_to_lookup.txt) into Data/reference here
 # before running the second half.
 #
 # Run the whole file, or a block at a time. The check scripts need no internet
@@ -29,7 +29,7 @@ source("R/reference/10_fetch_snomed_map.R")
 source("R/reference/11_check_snomed_map.R")   # proves 10, no internet needed
 
 # -- the site-to-trust map, from ODS -----------------------------------------
-# Reads Data/reference/site_codes_to_lookup.csv (from run_0 on the server) and
+# Reads Data/reference/site_codes_to_lookup.txt (from run_0 on the server) and
 # asks ODS about each code. Open API, no key.
 source("R/reference/20b_fetch_site_trust_map.R")
 source("R/reference/21_check_site_trust_map.R")   # proves 20b, no internet needed

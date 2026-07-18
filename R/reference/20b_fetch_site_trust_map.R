@@ -35,7 +35,7 @@
 # Before running: nothing. The ODS ORD API is open - no key, no sign-up. It asks
 # that callers stay below five requests a second, which the pause below respects.
 #
-# Reads:  Data/reference/site_codes_to_lookup.csv   the list 20a wrote
+# Reads:  Data/reference/site_codes_to_lookup.txt   the list 20a wrote
 # Writes: Data/reference/site_trust_map.csv         one row per site code
 #         Data/reference/site_trust_lookup_source.txt   when it was built
 # =============================================================================
@@ -52,7 +52,7 @@ suppressPackageStartupMessages({
 if (!exists("dir_ref")) dir_ref <- "Data/reference"
 dir.create(dir_ref, recursive = TRUE, showWarnings = FALSE)
 
-f_site_codes        <- file.path(dir_ref, "site_codes_to_lookup.csv")
+f_site_codes        <- file.path(dir_ref, "site_codes_to_lookup.txt")
 f_site_trust_map    <- file.path(dir_ref, "site_trust_map.csv")
 f_site_trust_source <- file.path(dir_ref, "site_trust_lookup_source.txt")
 
@@ -76,7 +76,7 @@ read_site_codes <- function() {
     stop("no code list at ", f_site_codes,
          "\n  - run 20a_list_site_codes.R on the server first and copy the ",
          "result here.", call. = FALSE)
-  codes <- read.csv(f_site_codes, colClasses = "character")$site_code
+  codes <- read.delim(f_site_codes, colClasses = "character")$site_code
   sort(unique(codes[!is.na(codes) & nchar(codes) == 5]))
 }
 

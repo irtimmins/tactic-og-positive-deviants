@@ -10,7 +10,7 @@
 # keeps the file-reading on the server and the web lookups off it.
 #
 # Reads:  the COSD diagnosis extract
-# Writes: Data/reference/site_codes_to_lookup.csv   one code per row
+# Writes: Data/reference/site_codes_to_lookup.txt   one code per row
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -28,7 +28,7 @@ if (!exists("path_cosd_dta"))
   path_cosd_dta <- file.path(dir_raw,
                              "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
 
-f_site_codes <- file.path(dir_ref, "site_codes_to_lookup.csv")
+f_site_codes <- file.path(dir_ref, "site_codes_to_lookup.txt")
 
 # the same tidying the build uses, so the codes listed here are the codes the
 # build will later try to match: trimmed, upper-cased, and cut at the first run
@@ -66,7 +66,12 @@ site_codes <- tidied[!is.na(tidied) & str_length(tidied) == 5]
 codes <- sort(unique(site_codes))
 
 out <- tibble(site_code = codes)
-write.csv(out, f_site_codes, row.names = FALSE)
+# .txt rather than .csv: this file has to leave the server, and something on
+# the transfer path appends an encrypted footer to .csv files - the content
+# survives but the file breaks for anything reading to the end. Plain
+# tab-separated text goes through untouched.
+write.table(out, f_site_codes, sep = "\t", quote = FALSE, row.names = FALSE,
+            fileEncoding = "ASCII")
 
 cat("\nDistinct five-character site codes:", nrow(out), "\n")
 cat("These appear on", length(site_codes), "COSD rows.\n")
