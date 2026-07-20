@@ -33,8 +33,17 @@ if (!exists("dir_out")) dir_out <- "W:/_DATA/IainTimmins/2026 OG SOTN data/Analy
 if (!exists("dir_ref")) dir_ref <- "Data/reference"
 if (!exists("dir_debug")) dir_debug <- "Data/intermediates"
 if (!exists("dir_sim")) dir_sim <- "Data/sim"
-for (d in c(dir_out, dir_ref, dir_debug))
-  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+for (.dir_to_make in c(dir_out, dir_ref, dir_debug))
+  dir.create(.dir_to_make, recursive = TRUE, showWarnings = FALSE)
+
+# a note for anyone adding to this file: every stage's 01 uses plain source(),
+# whose default (local = FALSE) evaluates the sourced code in .GlobalEnv - not
+# in the caller's environment, however deeply nested the source() calls are.
+# That means any variable assigned at the top level here (loop variables
+# included) lands in the global environment and can collide with anything else
+# using the same short name at the top level of a session. Prefixing throwaway
+# names with a dot (as above) keeps them out of the way; a genuine setting
+# (dir_out, dir_ref, ...) is meant to be global and is named accordingly.
 
 # a quick, loud check that no stage has been left writing patient data into the
 # repo by accident - dir_out should be an absolute path (a drive letter, a root,

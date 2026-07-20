@@ -117,26 +117,26 @@ cat("Patients with a CWT decision-to-treat date:", nrow(anchor), "\n")
 og <- pathway %>%
   left_join(anchor, by = "patient_pseudo_id")
 
-# the clock-start anchor: endoscopy where there is one, diagnosis otherwise
-og <- og %>%
-  mutate(
-    anchor_date = if (anchor_prefers_endoscopy)
-      coalesce(endoscopy_date, diagnosis_date) else diagnosis_date,
-    anchor_is_endoscopy = anchor_prefers_endoscopy & !is.na(endoscopy_date))
-
+# the clock-start: the diagnostic endoscopy. The OG timed pathway starts the
+# clock at the endoscopy where an abnormality is seen (guidance 2.2.11), so the
+# endoscopy date is the anchor. Patients with no endoscopy date have no
+# endoscopy-anchored waiting time - wt_endo_to_dtt is left missing for them, and
+# the reason column records why, so the loss is explicit rather than silent. The
+# diagnosis-anchored intervals (wt_dx_to_dtt, wt_dx_to_tx) are kept alongside for
+# any analysis that wants them.
 di <- function(a, b) as.integer(a - b)   # date difference in days
 
 og <- og %>%
   mutate(
     # the endoscopy-to-diagnosis lead-in, kept in its own right
     wt_endo_to_dx = di(diagnosis_date, endoscopy_date),
-
-    # diagnosis / endoscopy anchor to the decision-to-treat date. The intervals
-    # to the treatment date are derived below, once the treatment date to use has
-    # been settled.
-    wt_anchor_to_dtt = di(cwt_dtt_date, anchor_date),
-    wt_dtt_to_tx     = di(first_tx_date, cwt_dtt_date),
-    wt_dx_to_dtt     = di(cwt_dtt_date, diagnosis_date))
+    
+    # endoscopy anchor to the decision-to-treat date (missing where no
+    # endoscopy). The intervals to the treatment date are derived below, once the
+    # treatment date to use has been settled.
+    wt_endo_to_dtt = di(cwt_dtt_date, endoscopy_date),
+    wt_dtt_to_tx   = di(first_tx_date, cwt_dtt_date),
+    wt_dx_to_dtt   = di(cwt_dtt_date, diagnosis_date))
 
 # how well the CWT treatment date and the registry treatment date agree. Where
 # they are close the DTT is trustworthy; where the registry treatment date sits
@@ -162,22 +162,33 @@ og <- og %>%
     wt_dtt_to_tx = if_else(!is.na(wt_dtt_to_tx) & wt_dtt_to_tx < 0 &
                              !is.na(cwt_treat_date),
                            di(cwt_treat_date, cwt_dtt_date), wt_dtt_to_tx),
-    wt_anchor_to_tx = di(tx_date_used, anchor_date),
-    wt_dx_to_tx     = di(tx_date_used, diagnosis_date))
+    wt_endo_to_tx = di(tx_date_used, endoscopy_date),
+    wt_dx_to_tx   = di(tx_date_used, diagnosis_date))
 
 # -----------------------------------------------------------------------------
 # 5. Validity, and where a waiting time is missing, why
 # -----------------------------------------------------------------------------
 # Rather than a bare missing value, each interval carries a reason it could not
-# be measured. The reasons follow the bowel script's scheme:
-#   ok             a usable interval
-#   no CWT DTT     the patient has no CWT decision-to-treat date
-#   treat disagree the CWT and registry treatment dates are more than a few days
-#                  apart, so the DTT is not reliably this treatment's
-#   over 180 days  the interval is longer than the cap, so not a reliable measure
-#   non-positive   the interval is zero or negative
-dtt_reason <- function(interval) {
+# be measured. The reasons follow the bowel script's scheme, with one addition
+# for the endoscopy-anchored interval:
+#   ok                  a usable interval
+#   no endoscopy date   the patient has no diagnostic endoscopy date, so no
+#                       endoscopy-anchored waiting time (endoscopy interval only)
+#   no CWT DTT          the patient has no CWT decision-to-treat date
+#   treat disagree      the CWT and registry treatment dates are more than a few
+#                       days apart, so the DTT is not reliably this treatment's
+#   over cap            the interval is longer than the cap, not a reliable measure
+#   non-positive        the interval is negative
+# start_missing flags, per patient, that the interval's own clock-start date is
+# absent; it is passed only for the endoscopy interval, so a missing endoscopy is
+# named as such rather than lumped in as a generic "date missing".
+# small helper so the case_when condition is a plain logical vector whether or
+# not start_missing was supplied (recycled to length 1 when NULL)
+isTRUE_vec <- function(x) if (is.null(x)) FALSE else (!is.na(x) & x)
+
+dtt_reason <- function(interval, start_missing = NULL) {
   case_when(
+    isTRUE_vec(start_missing)              ~ "no endoscopy date",
     is.na(og$cwt_dtt_date)                 ~ "no CWT DTT",
     !og$treat_agrees                       ~ "treat dates disagree",
     is.na(interval)                        ~ "date missing",
@@ -188,15 +199,16 @@ dtt_reason <- function(interval) {
 
 og <- og %>%
   mutate(
-    dtt_to_tx_reason  = dtt_reason(wt_dtt_to_tx),
-    anchor_to_dtt_reason = dtt_reason(wt_anchor_to_dtt),
-    dtt_valid = dtt_to_tx_reason == "ok" & anchor_to_dtt_reason == "ok",
+    dtt_to_tx_reason     = dtt_reason(wt_dtt_to_tx),
+    endo_to_dtt_reason   = dtt_reason(wt_endo_to_dtt,
+                                      start_missing = is.na(endoscopy_date)),
+    dtt_valid = dtt_to_tx_reason == "ok" & endo_to_dtt_reason == "ok",
     # blank the intervals that are not reliable, keeping the reason column so the
     # loss is explained rather than silent
-    wt_anchor_to_dtt = if_else(anchor_to_dtt_reason == "ok", wt_anchor_to_dtt,
-                               NA_integer_),
-    wt_dtt_to_tx     = if_else(dtt_to_tx_reason == "ok", wt_dtt_to_tx,
-                               NA_integer_))
+    wt_endo_to_dtt = if_else(endo_to_dtt_reason == "ok", wt_endo_to_dtt,
+                             NA_integer_),
+    wt_dtt_to_tx   = if_else(dtt_to_tx_reason == "ok", wt_dtt_to_tx,
+                             NA_integer_))
 
 # -----------------------------------------------------------------------------
 # Report and save

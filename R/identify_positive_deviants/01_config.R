@@ -19,25 +19,52 @@
 # ============================================================================
 
 # paths ----------------------------------------------------------------------
-# in_rds points at the CWT-merged cohort. out_dir is where every result from this
-# stage is written; change it to send results elsewhere. stan_file is the
-# normal-normal shrinkage model, kept alongside these scripts.
-if (!exists("base_dir")) base_dir <- "Data/OG"
-in_rds  <- file.path(base_dir, "og_cohort_cwt.rds")
+# Shared paths - the same file every stage in the pipeline sources. Defines
+# dir_raw, dir_out (patient-level data, on the restricted drive), dir_ref
+# (reference lookups), dir_debug (aggregate, non-patient intermediates, in the
+# repo) and dir_transfer (the results-transfer area, off by default). See
+# R/config/directories.R for the full explanation.
+source("R/config/directories.R")
+library(dplyr)
 
-# reference lookups built once in the reference stage (site->trust map, etc.)
-if (!exists("dir_ref")) dir_ref <- "Data/reference"
+# input: the CWT-merged patient cohort. f_cohort_cwt is defined in the shared
+# paths file, so this stage never has to guess what the merge stage called it.
+in_rds <- f_cohort_cwt
 
-# out_dir: all outputs (tables, figures, intermediate rds) land here. Set it
-# before sourcing this file to redirect results without editing the script.
-if (!exists("out_dir")) out_dir <- "Output/positive_deviance"
-if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+# reference lookups (site->trust map, valid-trust list) - dir_ref, from the
+# shared paths file.
+site_trust_map_csv <- file.path(dir_ref, "site_trust_map.csv")
+valid_trusts_csv   <- file.path(dir_ref, "valid_diagnosing_trusts.csv")
 
+# the shrinkage model file, alongside these scripts in the repo.
 stan_dir  <- "R/identify_positive_deviants"
 stan_file <- file.path(stan_dir, "dp_normal_cont.stan")
 
-# hand-off files between scripts
-cohort_rds     <- file.path(out_dir, "pd_cohort.rds")          # 02 -> 03/04...
+# --- where this stage's own outputs go, on the same three-way split as the rest
+# of the pipeline -------------------------------------------------------------
+# patient-level (carries patient_pseudo_id): dir_out, the restricted drive.
+cohort_rds <- file.path(dir_out, "pd_cohort.rds")   # 02 -> 03/04, patient rows
+fit_rds    <- file.path(dir_out, "fit_primary.rds") # holds the weighted patient frame
+
+# site/hospital-level intermediates, no patient rows: dir_debug, in the repo.
+site_rds <- file.path(dir_debug, "site_sustained.rds")
+stan_rds <- file.path(dir_debug, "stan_sustained.rds")
+
+# key shareable outputs (aggregate tables and figures): dir_transfer, if it has
+# been set for a real run (see run_4_positive_deviance.R). If it has not - a
+# simulated or exploratory run - fall back to a local folder under dir_debug, so
+# nothing here ever requires the S: drive to exist just to test the code.
+if (is.null(dir_transfer)) {
+  warning("dir_transfer is not set - writing this stage's results to a local ",
+          "folder instead of the S: transfer area. Set dir_transfer (see ",
+          "run_4_positive_deviance.R) before sourcing for a real run.",
+          call. = FALSE)
+  out_dir <- file.path(dir_debug, "positive_deviance_test_output")
+} else {
+  out_dir <- dir_transfer
+}
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
 flow_csv       <- file.path(out_dir, "pd_flow.csv")            # patient attrition
 hosp_excl_csv  <- file.path(out_dir, "pd_hospitals_excluded.csv")
 
@@ -104,10 +131,11 @@ valid_trusts_csv <- file.path(dir_ref, "valid_diagnosing_trusts.csv")
 
 # outcome --------------------------------------------------------------------
 # time from diagnostic endoscopy to the decision to treat, in days. The merge
-# stage anchors this on endoscopy where present and diagnosis otherwise; only
-# positive (> 0) waits are analysed, and waits beyond max_wait are set aside as
-# implausible.
-outcome_var    <- "wt_anchor_to_dtt"
+# stage anchors this strictly on the diagnostic endoscopy; patients with no
+# endoscopy date have no endoscopy-anchored wait and are excluded (and counted)
+# in 02. Only positive (> 0) waits are analysed, and waits beyond max_wait are
+# set aside as implausible.
+outcome_var    <- "wt_endo_to_dtt"
 max_wait       <- 180
 drop_zero_wait <- TRUE
 

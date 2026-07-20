@@ -10,7 +10,7 @@
 #                    window. Excluded sites are listed with their yearly counts.
 #
 # The outcome is the time from diagnostic endoscopy to the decision to treat
-# (wt_anchor_to_dtt from the merge stage), and only positive values are analysed.
+# (wt_endo_to_dtt from the merge stage), and only positive values are analysed.
 #
 # Reads : og_cohort_cwt.rds
 # Writes: pd_cohort.rds, pd_flow.csv, pd_hospitals_excluded.csv
@@ -46,17 +46,17 @@ fc("All patients in the CWT-merged cohort", og)
 # patients sotn_cohort already includes, for no analytic reason. If a different
 # reporting period is wanted later, it should replace sotn_cohort's restriction,
 # not stack on top of it - see the note below.
-og <- og %>% mutate(anchor_date = as.Date(anchor_date))
+og <- og %>% mutate(endoscopy_date = as.Date(endoscopy_date))
 df <- og %>% filter(sotn_cohort == 1)
 fc("Main audit cohort (sotn_cohort == 1)", df)
 
 # the date range actually present, used only to build the season / calendar-year
 # covariates below (quarter dummies, and an earlier/later half split for the
-# yr_late term) - not to exclude anyone. Taken from the sotn_cohort-restricted
-# data itself, so it reflects whatever period sotn_cohort represents.
-start_date <- min(df$anchor_date, na.rm = TRUE)
-end_date   <- max(df$anchor_date, na.rm = TRUE)
-cat(sprintf("diagnosis dates present (sotn_cohort): %s to %s\n", start_date, end_date))
+# yr_late term) - not to exclude anyone. Taken from the diagnostic endoscopy date
+# (the clock-start) over the sotn_cohort-restricted data.
+start_date <- min(df$endoscopy_date, na.rm = TRUE)
+end_date   <- max(df$endoscopy_date, na.rm = TRUE)
+cat(sprintf("endoscopy dates present (sotn_cohort): %s to %s\n", start_date, end_date))
 
 # future option: restricting to a specific, different reporting period (e.g.
 # Jan 2023 to Mar 2025) instead of relying on sotn_cohort's own window. Not
@@ -65,8 +65,8 @@ cat(sprintf("diagnosis dates present (sotn_cohort): %s to %s\n", start_date, end
 # combined deliberately), not sit alongside it as an extra cut.
 #   start_date <- as.Date("2023-01-01")
 #   end_date   <- as.Date("2025-03-31")
-#   df <- df %>% filter(anchor_date >= start_date, anchor_date <= end_date)
-#   fc(sprintf("Diagnosed %s to %s", format(start_date, "%b %Y"),
+#   df <- df %>% filter(endoscopy_date >= start_date, endoscopy_date <= end_date)
+#   fc(sprintf("Endoscopy %s to %s", format(start_date, "%b %Y"),
 #              format(end_date, "%b %Y")), df)
 
 # curative pathway -----------------------------------------------------------
@@ -90,7 +90,17 @@ fc(sprintf("Tumour site %s", paste(include_sites, collapse = "/")), df)
 df <- df %>% filter(stage_RR %in% 1:3)
 fc("Stage 1-3", df)
 
+# endoscopy date -------------------------------------------------------------
+# the outcome is anchored strictly on the diagnostic endoscopy, so a patient
+# with no endoscopy date has no measurable endoscopy-to-DTT wait. Drop them here,
+# as their own explicit step, so the number excluded for a missing endoscopy is
+# visible in the attrition rather than folded into the outcome-recorded step.
+df <- df %>% filter(!is.na(endoscopy_date))
+fc("Diagnostic endoscopy date recorded", df)
+
 # valid, positive, plausible endoscopy-to-DTT time ---------------------------
+# with an endoscopy date present, a missing outcome here is a missing/invalid
+# decision-to-treat date rather than a missing endoscopy.
 df <- df %>% filter(!is.na(.data[[outcome_var]]))
 df$wait <- df[[outcome_var]]
 fc("Endoscopy-to-decision-to-treat time recorded", df)
@@ -212,13 +222,13 @@ df <- df %>%
     canalliance = as.character(diagnosis_alliance),
     
     # calendar-year half (for yr_late) and season dummies, split on the actual
-    # midpoint of the diagnosis dates present - not on window_months, since the
-    # window is no longer fixed by that setting (see the sotn_cohort note above)
+    # midpoint of the endoscopy dates present. Every patient here has an
+    # endoscopy date (dropped above otherwise), so the clock-start is complete.
     mid_date = start_date + floor(as.numeric(end_date - start_date) / 2),
-    period   = factor(ifelse(anchor_date < mid_date, "first", "second"),
+    period   = factor(ifelse(endoscopy_date < mid_date, "first", "second"),
                       levels = c("first", "second")),
     yr_late  = as.integer(period == "second"),
-    qtr      = quarter(anchor_date),
+    qtr      = quarter(endoscopy_date),
     q2 = as.integer(qtr == 2),
     q3 = as.integer(qtr == 3),
     q4 = as.integer(qtr == 4))

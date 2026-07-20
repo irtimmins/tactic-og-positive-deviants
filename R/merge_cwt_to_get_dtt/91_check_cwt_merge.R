@@ -22,12 +22,12 @@ suppressPackageStartupMessages({
 dir_build <- "R/merge_cwt_to_get_dtt"
 
 .saved <- mget(c("dir_out", "dir_raw", "dir_ref", "read_cohort_site",
-                 "read_cohort_pathway", "read_cwt", "anchor_prefers_endoscopy"),
+                 "read_cohort_pathway", "read_cwt"),
                ifnotfound = list(NULL), envir = globalenv())
 restore_session <- function() {
   for (nm in names(.saved))
     if (is.null(.saved[[nm]])) suppressWarnings(rm(list = nm, envir = globalenv()))
-    else assign(nm, .saved[[nm]], envir = globalenv())
+  else assign(nm, .saved[[nm]], envir = globalenv())
 }
 
 .checks <- new.env(); .checks$rows <- list()
@@ -38,12 +38,11 @@ expect <- function(label, cond) {
 }
 
 # run 02 then 03 over given registry + cwt data, hand back the merged cohort
-run_merge <- function(registry, cwt, endoscopy_anchor = TRUE) {
+run_merge <- function(registry, cwt) {
   d <- tempfile("cwt_check_"); dir.create(d)
   assign("dir_out", d, envir = globalenv())
   assign("dir_raw", tempdir(), envir = globalenv())
   assign("dir_ref", tempdir(), envir = globalenv())
-  assign("anchor_prefers_endoscopy", endoscopy_anchor, envir = globalenv())
   assign("read_cohort_site", function() registry, envir = globalenv())
   assign("read_cwt", function() cwt, envir = globalenv())
   invisible(capture.output(suppressMessages(
@@ -79,7 +78,8 @@ cwt_row <- function(id, dtt, treat, modality, site = "C15") {
 cat("\nPathway derivation\n")
 
 reg <- bind_rows(
-  reg_row("surg", surgery_date = as.Date("2022-03-01"), surgintent = 1L,
+  reg_row("surg", endodateHES = as.Date("2022-01-05"),
+          surgery_date = as.Date("2022-03-01"), surgintent = 1L,
           surgery_trust = "RAA01"),
   reg_row("neoadj", surgery_date = as.Date("2022-05-01"),
           sact_first_date = as.Date("2022-02-01"), surgintent = 1L,
@@ -161,20 +161,34 @@ out3 <- run_merge(reg3, cwt3)
 expect("the retired surgery code after the window is not used",
        is.na(out3$cwt_dtt_date[out3$patient_pseudo_id == "w1"]))
 
-cat("\nThe clock-start anchor\n")
+cat("\nThe clock-start (endoscopy)\n")
 reg4 <- reg_row("a1", diagnosisdate = as.Date("2022-02-01"),
                 endodateHES = as.Date("2022-01-15"),
                 surgery_date = as.Date("2022-03-01"), surgintent = 1L,
                 surgery_trust = "RAA01")
 cwt4 <- cwt_row("a1", "2022-02-20", "2022-03-01", 23)
-out4a <- run_merge(reg4, cwt4, endoscopy_anchor = TRUE)
-out4b <- run_merge(reg4, cwt4, endoscopy_anchor = FALSE)
-expect("with the endoscopy anchor, the DTT interval counts from endoscopy",
-       out4a$wt_anchor_to_dtt[1] == as.integer(as.Date("2022-02-20") - as.Date("2022-01-15")))
-expect("without it, the DTT interval counts from diagnosis",
-       out4b$wt_anchor_to_dtt[1] == as.integer(as.Date("2022-02-20") - as.Date("2022-02-01")))
+out4 <- run_merge(reg4, cwt4)
+expect("the endoscopy-to-DTT interval counts from the endoscopy date",
+       out4$wt_endo_to_dtt[1] == as.integer(as.Date("2022-02-20") - as.Date("2022-01-15")))
+expect("the diagnosis-anchored interval is kept alongside",
+       out4$wt_dx_to_dtt[1] == as.integer(as.Date("2022-02-20") - as.Date("2022-02-01")))
 expect("the endoscopy-to-diagnosis lead-in is recorded",
-       out4a$wt_endo_to_dx[1] == as.integer(as.Date("2022-02-01") - as.Date("2022-01-15")))
+       out4$wt_endo_to_dx[1] == as.integer(as.Date("2022-02-01") - as.Date("2022-01-15")))
+
+# a patient with no endoscopy date has no endoscopy-anchored wait, and the
+# reason names the missing endoscopy specifically
+reg4b <- reg_row("a2", diagnosisdate = as.Date("2022-02-01"),
+                 endodateHES = as.Date(NA),
+                 surgery_date = as.Date("2022-03-01"), surgintent = 1L,
+                 surgery_trust = "RAA01")
+cwt4b <- cwt_row("a2", "2022-02-20", "2022-03-01", 23)
+out4b <- run_merge(reg4b, cwt4b)
+expect("no endoscopy date leaves the endoscopy-to-DTT wait missing",
+       is.na(out4b$wt_endo_to_dtt[1]))
+expect("and the reason is recorded as no endoscopy date",
+       out4b$endo_to_dtt_reason[1] == "no endoscopy date")
+expect("but the diagnosis-anchored interval is still there",
+       out4b$wt_dx_to_dtt[1] == as.integer(as.Date("2022-02-20") - as.Date("2022-02-01")))
 
 cat("\nValidity reasons\n")
 # DTT after the 180-day cap
@@ -206,10 +220,13 @@ expect("valid DTT-to-treatment intervals are the majority",
        mean(sim_out$dtt_valid, na.rm = TRUE) > 0.6)
 expect("no endoscopy date sits after its diagnosis date",
        all(sim_out$wt_endo_to_dx >= 0, na.rm = TRUE))
-expect("valid DTT-to-treatment intervals are all positive and within the cap",
+expect("valid DTT-to-treatment intervals are all non-negative and within the cap",
        {
+         # a same-day decision-to-treat and treatment start (interval == 0) is a
+         # valid, ordinary outcome - see 03's dtt_reason, which only rejects a
+         # genuinely negative interval, not a zero one
          v <- sim_out$wt_dtt_to_tx[sim_out$dtt_valid]
-         all(v > 0 & v <= 180, na.rm = TRUE)
+         all(v >= 0 & v <= 180, na.rm = TRUE)
        })
 
 # =============================================================================

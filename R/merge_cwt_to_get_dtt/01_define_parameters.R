@@ -6,8 +6,10 @@
 # clock for each treatment pathway, and the tolerances used when a waiting time
 # is accepted or set aside. Sourced by 02 and 03 here.
 #
-# Shared paths and helpers come from common/paths_and_helpers.R. The stage reads
-# og_cohort_site.rds (the registry with the site of diagnosis) and the CWT
+# Shared paths come from R/config/directories.R, the generic org-code tidier
+# from R/shared/utils.R, and this stage's own packages and modality-grouping
+# helper from _load_packages.R and _helpers.R (both sourced below). The stage
+# reads og_cohort_site.rds (the registry with the site of diagnosis) and the CWT
 # extract, and writes og_cohort_cwt.rds.
 #
 # The coding follows the National Cancer Waiting Times Monitoring Dataset
@@ -44,38 +46,9 @@ cwt_date_order <- "%Y-%m-%d"
 # -----------------------------------------------------------------------------
 # Modality groups
 # -----------------------------------------------------------------------------
-# The guidance modality codes, grouped as the analysis needs them. Codes arrive
-# as integers, so 2 is guidance "02" and so on. Code 1 is the surgical code that
-# the guidance retired in 2020 ("01"); it still appears in older rows and counts
-# as surgery, which the bowel script also does (modality 1 / 23 / 24).
-#
-#   surgery       1 (retired), 23 (surgery), 24 (surgery, enabling)
-#   chemo         2 (cytotoxic), 14 (other), 15 (immunotherapy)
-#   hormone       3
-#   chemort       4 (chemoradiotherapy)
-#   radiotherapy  5 (teletherapy), 6 (brachytherapy), 13 (proton)
-#   palliative    7 (specialist palliative), 8 (active monitoring),
-#                 9 (non-specialist palliative)
-#   other         97
-#   declined      98
-# Anything else is left ungrouped and set aside.
-modality_groups <- list(
-  surgery      = c(1L, 23L, 24L),
-  chemo        = c(2L, 14L, 15L),
-  hormone      = c(3L),
-  chemort      = c(4L),
-  radiotherapy = c(5L, 6L, 13L),
-  palliative   = c(7L, 8L, 9L),
-  other        = c(97L),
-  declined     = c(98L))
-
-modality_group_of <- function(code) {
-  code <- suppressWarnings(as.integer(code))
-  out <- rep(NA_character_, length(code))
-  for (g in names(modality_groups))
-    out[code %in% modality_groups[[g]]] <- g
-  out
-}
+# The function that turns a CWT modality code into its group (modality_group_of)
+# and the grouping itself (modality_groups) are in _helpers.R, sourced below.
+source("R/merge_cwt_to_get_dtt/_helpers.R")
 
 # The surgical code 1 ("01") was retired from 2020 and 23/24 took its place, with
 # a transition window in between where systems were moving over. Within the
@@ -153,14 +126,15 @@ treat_agree_days   <- 5L
 dtt_valid_max_days <- 180L
 
 # -----------------------------------------------------------------------------
-# The clock-start anchor
+# The clock-start
 # -----------------------------------------------------------------------------
-# The OG timed pathway (guidance 2.2.11) can start the clock at the endoscopy
-# where an abnormality is seen. So the waiting-time intervals are anchored on the
-# endoscopy date where there is one, and fall back to the diagnosis date where
-# there is not. Both the endoscopy-anchored and the diagnosis-anchored intervals
-# are kept, so the choice is visible rather than hidden.
-if (!exists("anchor_prefers_endoscopy")) anchor_prefers_endoscopy <- TRUE
+# The OG timed pathway (guidance 2.2.11) starts the clock at the diagnostic
+# endoscopy where an abnormality is seen, so the endoscopy date is the
+# clock-start for the primary waiting time (wt_endo_to_dtt). A patient with no
+# endoscopy date has no endoscopy-anchored waiting time and is recorded as such
+# rather than falling back to diagnosis; the diagnosis-anchored intervals
+# (wt_dx_to_dtt, wt_dx_to_tx) are kept alongside for any analysis that wants a
+# diagnosis clock-start instead.
 
 cat("01 parameters set (CWT merge): writing to", dir_out,
     "| DTT window", tx_window_days, "days",
