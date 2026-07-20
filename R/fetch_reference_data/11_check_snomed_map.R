@@ -18,7 +18,7 @@
 # The download itself is the only part not covered here. Everything after it is.
 #
 # Run from the project root:
-#   Rscript R/reference/11_check_snomed_map.R
+#   Rscript R/fetch_reference_data/11_check_snomed_map.R
 # =============================================================================
 
 suppressPackageStartupMessages(library(tidyverse))
@@ -26,7 +26,7 @@ suppressPackageStartupMessages(library(tidyverse))
 # load the functions from 10 without letting it try to reach TRUD
 skip_trud_run <- TRUE
 dir_ref <- tempfile("ref_")
-source("R/reference/10_fetch_snomed_map.R")
+source("R/fetch_reference_data/10_fetch_snomed_map.R")
 
 .checks <- new.env(); .checks$rows <- list()
 expect <- function(label, cond) {
@@ -233,7 +233,13 @@ expect("a release with no map file gives a clear error",
          empty <- tempfile(fileext = ".zip")
          d <- tempfile(); dir.create(d)
          writeLines("nothing here", file.path(d, "readme.txt"))
-         old <- setwd(d); zip(empty, "readme.txt", flags = "-q"); setwd(old)
+         # local() gives on.exit a real function frame, so the working directory
+         # is put back even if zip() errors (e.g. no zip utility on PATH) rather
+         # than being left changed for every later check to trip over.
+         local({
+           old <- setwd(d); on.exit(setwd(old))
+           zip(empty, "readme.txt", flags = "-q")
+         })
          msg <- tryCatch(read_extended_map(empty), error = conditionMessage)
          grepl("no ExtendedMap file", msg)
        })

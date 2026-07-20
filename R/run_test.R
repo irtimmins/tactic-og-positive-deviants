@@ -81,7 +81,13 @@ results <- data.frame(check = character(), status = character(),
 for (chk in checks) {
   cat("\n########## ", chk, " ##########\n", sep = "")
   # source into a fresh environment each time, so one check's settings/data
-  # (e.g. dir_out, in_rds) cannot leak into the next.
+  # (e.g. dir_out, in_rds) cannot leak into the next. Also snapshot and restore
+  # the working directory around each check: a check that setwd()s into a temp
+  # folder and errors before restoring would otherwise leave every later check
+  # resolving its relative source() paths from the wrong place - which surfaces
+  # as an identical, misleading "cannot open the connection" in every check after
+  # the first. Restoring wd here isolates each check from that.
+  wd_before <- getwd()
   status <- "pass"; note <- ""
   result <- tryCatch({
     source(chk, local = new.env())
@@ -95,6 +101,11 @@ for (chk in checks) {
     } else {
       note <<- msg
       "FAIL"
+    }
+  }, finally = {
+    if (getwd() != wd_before) {
+      cat("  (note: this check left the working directory changed - restored)\n")
+      setwd(wd_before)
     }
   })
   results <- rbind(results, data.frame(check = chk, status = result, note = note))
