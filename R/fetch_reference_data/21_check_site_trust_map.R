@@ -12,7 +12,7 @@
 # reading step and feed it the stored json instead.
 #
 # Run from the project root:
-#   Rscript R/reference/21_check_site_trust_map.R
+#   Rscript R/fetch_reference_data/21_check_site_trust_map.R
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -24,9 +24,14 @@ suppressPackageStartupMessages({
   library(magrittr)
 })
 
+# local = TRUE sources 20b into THIS environment, so the skip_ods_run set just
+# above is the one its fetch guard sees. Without it a plain source() reads 20b in
+# the global environment, and when this check is itself sourced into a child
+# environment (as run_test.R does) skip_ods_run would not be visible there and
+# the real ODS fetch would run. A test must never reach the network.
 skip_ods_run <- TRUE
 dir_ref <- tempfile("ref_")
-source("R/reference/20_fetch_site_trust_map.R")
+source("R/fetch_reference_data/20b_fetch_site_trust_map.R", local = TRUE)
 
 .checks <- new.env(); .checks$rows <- list()
 expect <- function(label, cond) {

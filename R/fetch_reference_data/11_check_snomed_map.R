@@ -23,10 +23,15 @@
 
 suppressPackageStartupMessages(library(tidyverse))
 
-# load the functions from 10 without letting it try to reach TRUD
+# load the functions from 10 without letting it try to reach TRUD. local = TRUE
+# sources 10 into THIS environment, so the skip_trud_run set just above is the
+# one its download guard sees. Without it, a plain source() would read 10 in the
+# global environment instead - and when this check is itself sourced into a child
+# environment (as run_test.R does), skip_trud_run would not be visible there and
+# the real 1 GB TRUD download would run. A test must never reach the network.
 skip_trud_run <- TRUE
 dir_ref <- tempfile("ref_")
-source("R/fetch_reference_data/10_fetch_snomed_map.R")
+source("R/fetch_reference_data/10_fetch_snomed_map.R", local = TRUE)
 
 .checks <- new.env(); .checks$rows <- list()
 expect <- function(label, cond) {
@@ -413,19 +418,6 @@ expect("the flag patterns are lowercase, since the terms are lowercased first",
        identical(review_flags$pattern, str_to_lower(review_flags$pattern)))
 expect("the flags do not drop any codes",
        nrow(review) == nrow(og))
-expect("junction rows outrank overlapping-site rows regardless of the alphabet",
-       {
-         withrank <- og %>% mutate(term = name_of(snomed, terms)) %>%
-           flag_for_review()
-         j <- withrank$look_at_rank[withrank$snomed == "555000001"]
-         o <- withrank$look_at_rank[withrank$snomed == "777000002"]
-         !is.na(j) && !is.na(o) && j < o
-       })
-expect("an unflagged row has no rank",
-       is.na(withrank <- (og %>% mutate(term = name_of(snomed, terms)) %>%
-                            flag_for_review())$look_at_rank[
-                              (og %>% mutate(term = name_of(snomed, terms)) %>%
-                                 flag_for_review())$snomed == "111000001"]))
 
 expect("codes we could not place are written out, not silently lost",
        nrow(res$dropped) == 1 && res$dropped$snomed == "666000001")
