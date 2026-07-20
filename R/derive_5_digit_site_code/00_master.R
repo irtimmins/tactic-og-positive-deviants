@@ -6,29 +6,27 @@
 # COSD extract; the CWT merge follows. Step 03 takes the choice 02 made apart, so
 # it can be reviewed rather than taken on trust.
 #
-# dir_raw, dir_out and dir_transfer are only filled in here if not already set,
-# so a script or console session can point them elsewhere first - at Data/sim
-# for a trial run, or at a different drive letter - and this file leaves that
-# alone rather than overwriting it. dir_ref is not set here since
-# 01_define_parameters.R already defaults it, so that default lives in one place.
+# Storage is defined once in R/config/directories.R (dir_raw, dir_out, dir_ref,
+# dir_debug, dir_transfer, transfer_root) and sourced here, so this stage's
+# defaults can never drift from the rest of the pipeline's. Set any of those
+# variables before sourcing this file to override them for one run - e.g.
+# dir_out <- "Data/sim" for a trial run against synthetic data, or
+# dir_transfer <- NULL to keep a trial's made-up numbers off the S: drive.
 #
 # dir_transfer is the analysis server's unencrypted output folder - the only
-# place a file can be written and then sent off the server. The build log and
-# the diagnostics csvs from 03 are copied there once the run finishes. For a
-# simulated or trial run, set dir_transfer <- NULL (or point it at a scratch
-# folder) before sourcing this file, or the trial's made-up numbers land in the
-# real folder next to real results.
+# place a file can be written and then sent off the server (the W: data drive is
+# encrypted and cannot be transferred). The build log and the diagnostics csvs
+# from 03 are copied there once the run finishes, if it is set. It defaults to
+# NULL (off) in R/config/directories.R; set dir_transfer <- transfer_root before
+# sourcing this file for a real run that should reach S: (run_master.R does
+# this for the whole pipeline in one place).
 #
-# The validation scripts prove the build code against fixtures and against
-# simulated data, so they can be run anywhere - they never read dir_raw and never
-# write dir_out or dir_transfer. Run them after any change to the rules in 01.
+# The validation script proves the build code against fixtures and against
+# simulated data, so it can be run anywhere - it never reads dir_raw and never
+# writes dir_out or dir_transfer. Run it after any change to the rules in 01.
 # =============================================================================
 
-if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
-if (!exists("dir_out")) dir_out <- "Data/OG"
-if (!exists("dir_transfer"))
-  dir_transfer <- paste("S:/NATCAN_Projects/NOGCA/Iain Timmins",
-                        "Results transfer out of server/Build dataset", sep = "/")
+source("R/config/directories.R")
 
 # Everything below runs inside a function rather than at the top level of this
 # script. on.exit() only defers to the end of an enclosing function - at the top

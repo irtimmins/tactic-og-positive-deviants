@@ -45,7 +45,16 @@ restore_session <- function() {
     else assign(nm, .saved[[nm]], envir = globalenv())
   }
 }
-on.exit(restore_session(), add = TRUE)
+# restore_session() is called explicitly at the end (both the pass and fail
+# branches), not registered via on.exit() here: on.exit() at the top level of a
+# script only fires at the right time when that script is run directly by
+# Rscript. When the same script is instead source()'d from within another
+# script - as run_test.R does, to run every stage's checks in one session - each
+# top-level statement is its own evaluation frame, so a top-level on.exit()
+# fires immediately after being registered rather than waiting for the script to
+# finish. That silently undid the og_min_input_rows override above before any
+# check ran. Calling restore_session() explicitly, at the point the script
+# actually ends, works correctly either way.
 
 .checks <- new.env(); .checks$rows <- list()
 expect <- function(label, cond) {
@@ -284,7 +293,7 @@ expect("site_max_rank = 2 leaves the supported picks alone",
 # -----------------------------------------------------------------------------
 cat("\n  the published map\n")
 
-# what R/reference/10_fetch_snomed_map.R would hand over for these numbers
+# what R/fetch_reference_data/10_fetch_snomed_map.R would hand over for these numbers
 eg_map <- tibble(snomed = c("111000001", "222000002"),
                  site3 = c("C15", "C18"),
                  icd10_targets = c("C15.9", "C18.9"))
@@ -521,7 +530,7 @@ cat("\n", nrow(res), "checks,", n_fail, "failed\n")
 if (n_fail) {
   cat("\nfailed:\n"); cat(paste0("  ", res$label[!res$ok], collapse = "\n"), "\n")
   restore_session()
-  quit(status = 1, save = "no")
+  if (!interactive()) quit(status = 1, save = "no") else stop(n_fail, " check(s) failed - see the output above.", call. = FALSE)
 }
 restore_session()
 cat("All checks passed.\n")

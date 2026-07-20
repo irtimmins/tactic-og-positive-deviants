@@ -28,6 +28,10 @@
 #            debugging. Also in the repo.
 # dir_sim    the synthetic tree the test run writes to - fixtures for every
 #            stage. In the repo but .gitignored, so the fakes are never pushed.
+# the repository's own name, used to name this project's folder in the shared
+# results-transfer area (transfer_root, below).
+repo_name <- "tactic-og-positive-deviants"
+
 if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
 if (!exists("dir_out")) dir_out <- "W:/_DATA/IainTimmins/2026 OG SOTN data/Analysis"
 if (!exists("dir_ref")) dir_ref <- "Data/reference"
@@ -61,9 +65,19 @@ if (!grepl("^([A-Za-z]:[\\\\/]|/|\\\\\\\\)", dir_out))
 # patient_pseudo_id already used throughout, and even that should not normally
 # appear - transfer-folder outputs are aggregate results, not patient rows.
 #
-# Defaults to off (NULL). A run_*.R script sets it to a real S: path for a real
-# run; a simulated or test run leaves it NULL, so made-up numbers never land in
-# the real folder.
+# The canonical location is fixed here, once, as transfer_root, so every runner
+# refers to the same string rather than hard-coding it. But dir_transfer itself
+# defaults to NULL (off): a real run turns it on by setting
+#   dir_transfer <- transfer_root
+# (the run_master / run_4 scripts do this), while a simulated or test run leaves
+# it NULL, so made-up numbers never land in the real folder. This matters
+# especially here: the W: data drive is encrypted and cannot be transferred off
+# the server, so results that must leave have to be written to this S: folder -
+# a run that forgets to set dir_transfer produces results that are stuck.
+transfer_root <- paste0(
+  "S:/NATCAN_Projects/NOGCA/Iain Timmins/",
+  "Results transfer out of server/OG/", repo_name)
+
 if (!exists("dir_transfer")) dir_transfer <- NULL
 if (!is.null(dir_transfer))
   dir.create(dir_transfer, recursive = TRUE, showWarnings = FALSE)

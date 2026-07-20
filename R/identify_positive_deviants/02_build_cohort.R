@@ -163,14 +163,53 @@ if (file.exists(valid_trusts_csv)) {
 
 # per-year diagnosis counts by site, completed over every year in the window so a
 # site missing a whole year counts as zero for that year (and so is excluded).
+# The year set is taken from the data present; over a clean Jan 2023 - Dec 2024
+# cohort that is c(2023, 2024), and both the per-year average and the every-year
+# floor divide by / span those two years.
 wyears <- sort(unique(df$diagnosis_year))
+n_years <- length(wyears)
 site_year <- df %>%
   count(diag_hosp_canon, diagnosis_year, name = "n") %>%
   tidyr::complete(diag_hosp_canon, diagnosis_year = wyears, fill = list(n = 0L))
 
 site_min <- site_year %>%
   group_by(diag_hosp_canon) %>%
-  summarise(min_year = min(n), total = sum(n), .groups = "drop")
+  summarise(min_year = min(n), total = sum(n), .groups = "drop") %>%
+  mutate(per_year = total / n_years)
+
+# a per-hospital table, produced BEFORE the volume floor is applied, so every
+# site is visible - including those about to be excluded. One row per hospital
+# (site of diagnosis) with its operating trust, total patients, patients per
+# year (mean over the window), and a flag for whether it would be excluded on
+# the >= min_per_year-in-every-year rule. The exclusion uses the strictest rule:
+# a site must reach min_per_year in each individual year, so the flag is driven
+# by min_year, not by the average.
+site_trust_of <- df %>% distinct(diag_hosp_canon, diag_trust)
+hosp_table <- site_min %>%
+  left_join(site_trust_of, by = "diag_hosp_canon") %>%
+  group_by(diag_trust) %>%
+  mutate(hosps_in_trust = n_distinct(diag_hosp_canon)) %>%
+  ungroup() %>%
+  mutate(excluded_lt5_per_year = min_year < min_per_year) %>%
+  # trusts reporting more than one hospital first, then by trust and hospital
+  arrange(desc(hosps_in_trust), diag_trust, desc(total), diag_hosp_canon) %>%
+  transmute(
+    trust        = diag_trust,
+    hospitals_in_trust = hosps_in_trust,
+    hospital     = diag_hosp_canon,
+    patients     = total,
+    per_year     = round(per_year, 1),
+    min_year_n   = min_year,
+    excluded_lt5_per_year)
+
+cat(sprintf("\nPer-hospital patient counts (%d-year window: %s). Multi-hospital",
+            n_years, paste(range(wyears), collapse = "-")),
+    "trusts first; the flag marks sites that would be excluded on the",
+    sprintf("<%d-per-year (every year) rule:\n", min_per_year))
+print(as.data.frame(hosp_table), row.names = FALSE)
+write.csv(hosp_table, file.path(out_dir, "pd_hospital_counts.csv"),
+          row.names = FALSE)
+cat(sprintf("(written to %s)\n", "pd_hospital_counts.csv"))
 
 sites_keep <- site_min %>% filter(min_year >= min_per_year) %>% pull(diag_hosp_canon)
 sites_drop <- site_min %>% filter(min_year <  min_per_year)

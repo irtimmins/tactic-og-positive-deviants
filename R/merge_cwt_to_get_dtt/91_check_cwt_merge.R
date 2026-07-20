@@ -236,6 +236,6 @@ cat("\n", nrow(res), "checks,", n_fail, "failed\n")
 restore_session()
 if (n_fail) {
   cat("\nfailed:\n"); cat(paste0("  ", res$label[!res$ok], collapse = "\n"), "\n")
-  quit(status = 1, save = "no")
+  if (!interactive()) quit(status = 1, save = "no") else stop(n_fail, " check(s) failed - see the output above.", call. = FALSE)
 }
 cat("All checks passed.\n")
