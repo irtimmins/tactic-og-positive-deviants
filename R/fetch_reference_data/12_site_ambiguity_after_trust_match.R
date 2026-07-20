@@ -12,27 +12,14 @@
 # same registry and COSD files, so it can be run and read independently.
 #
 # Run from the project root:
-#   Rscript R/reference/12_site_ambiguity_after_trust_match.R
+#   Rscript R/fetch_reference_data/12_site_ambiguity_after_trust_match.R
 # =============================================================================
 
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(haven))
 
-if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
-if (!exists("path_rapid_dta"))
-  path_rapid_dta <- file.path(dir_raw,
-                              "20260212_Rapidtumour_linked_2026SOTN_clean_OG_postPT.dta")
-if (!exists("path_cosd_dta"))
-  path_cosd_dta <- file.path(dir_raw,
-                             "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
-
-# the same tidying 01 uses, kept in step with it deliberately: a trust or site
-# code read differently here than in the build would make this answer moot
-tidy_org_code <- function(x) {
-  x <- str_trim(str_to_upper(as.character(x)))
-  x <- str_extract(x, "^[A-Z0-9]+")
-  if_else(x == "" | is.na(x), NA_character_, x)
-}
+source("R/config/directories.R")   # dir_raw, path_rapid_dta, path_cosd_dta
+source("R/shared/utils.R")          # tidy_org_code
 
 rapid <- read_dta(path_rapid_dta, col_select = c(
   patient_pseudo_id, diagnosis_trust))

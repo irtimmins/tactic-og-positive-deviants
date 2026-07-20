@@ -4,5 +4,14 @@
 .Ruserdata
 .Renviron
 
-/Data/*
-!/Data/reference/
+Data/reference/*
+!Data/reference/valid_diagnosing_trusts.csv
+!Data/reference/snomed_og_lookup.csv
+!Data/reference/site_trust_map.csv
+
+Data/sim/
+Data/intermediates/
+Data/OG/
+Data/OG_test/
+*.rds
+*.dtainventory_report.txt

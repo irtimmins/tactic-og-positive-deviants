@@ -20,24 +20,10 @@ suppressPackageStartupMessages({
   library(haven)
 })
 
-if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
-if (!exists("dir_ref")) dir_ref <- "Data/reference"
-dir.create(dir_ref, recursive = TRUE, showWarnings = FALSE)
-
-if (!exists("path_cosd_dta"))
-  path_cosd_dta <- file.path(dir_raw,
-                             "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
+source("R/config/directories.R")   # dir_raw, dir_ref, path_cosd_dta
+source("R/shared/utils.R")          # tidy_org_code
 
 f_site_codes <- file.path(dir_ref, "site_codes_to_lookup.txt")
-
-# the same tidying the build uses, so the codes listed here are the codes the
-# build will later try to match: trimmed, upper-cased, and cut at the first run
-# of letters and digits.
-tidy_org_code <- function(x) {
-  x <- str_trim(str_to_upper(as.character(x)))
-  x <- str_extract(x, "^[A-Z0-9]+")
-  if_else(x == "" | is.na(x), NA_character_, x)
-}
 
 cosd <- read_dta(path_cosd_dta, col_select = site_code_of_diagnosis)
 cat("COSD rows read:", nrow(cosd), "\n")

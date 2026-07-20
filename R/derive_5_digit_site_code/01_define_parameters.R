@@ -6,15 +6,19 @@
 # rather than to some other cancer, and how one site is chosen when a patient
 # offers several. Sourced by 02 and 03.
 #
-# The shared paths and helpers - where the files are, tidy_org_code, icd_site3
-# and so on - come from common/paths_and_helpers.R, sourced first below, so they
-# are defined once for the whole project rather than copied into each stage.
+# The shared paths (where the files are), the generic utilities (tidy_org_code,
+# check_input) and this stage's own parsing helpers (icd_site3, morph4,
+# snomed_id) are brought in here, so they are defined once and 02/03 inherit them
+# by sourcing this file.
 #
 # The judgement calls live here rather than being spread through the build, so
 # they can be read, argued with and changed in one place.
 # =============================================================================
 
-source("R/common/paths_and_helpers.R")
+source("R/config/directories.R")
+source("R/shared/utils.R")
+source("R/derive_5_digit_site_code/_load_packages.R")
+source("R/derive_5_digit_site_code/_helpers.R")
 
 # -----------------------------------------------------------------------------
 # What counts as a site code
@@ -71,7 +75,7 @@ is_site_code <- function(x) {
 #   1 the topography, when it is there. It is already in the language we want.
 #   2 the SNOMED number, looked up in NHS England's SNOMED-to-ICD-10 map. The
 #     map is published as part of the SNOMED CT UK Clinical Edition;
-#     R/reference/10_fetch_snomed_map.R downloads it and writes the C15 and C16
+#     R/fetch_reference_data/10_fetch_snomed_map.R downloads it and writes the C15 and C16
 #     codes to Data/reference/snomed_og_lookup.csv. Put that file in place and
 #     the build finds it. This is the same job Sarah's hand-written list of
 #     SNOMED codes does for bowel, done from the published source instead.

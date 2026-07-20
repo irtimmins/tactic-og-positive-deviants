@@ -18,7 +18,9 @@
 # five-day agreement tolerance between the CWT and registry treatment dates.
 # =============================================================================
 
-source("R/common/paths_and_helpers.R")
+source("R/config/directories.R")
+source("R/shared/utils.R")
+source("R/merge_cwt_to_get_dtt/_load_packages.R")
 
 # -----------------------------------------------------------------------------
 # The CWT extract
@@ -33,7 +35,7 @@ source("R/common/paths_and_helpers.R")
 #                       periods that are plainly for a different cancer
 if (!exists("path_cwt_dta"))
   path_cwt_dta <- file.path(dir_raw,
-    "20260212_all_cwt_rapid_202601_OG.dta")
+                            "20260212_all_cwt_rapid_202601_OG.dta")
 
 # CWT stores its dates as YMD strings. The bowel script parses them the same way;
 # note this differs from some older extracts that used DMY.
