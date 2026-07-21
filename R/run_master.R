@@ -19,8 +19,14 @@
 #                 the S: results-transfer area, because the W: drive is encrypted
 #                 and cannot be transferred off the server. This is set here so a
 #                 real run's results actually leave the server; a test run
-#                 (run_test.R) leaves it NULL and writes to a local scratch folder
-#                 instead.
+#                 (run_to_test_logic.R) leaves it NULL and writes to a local
+#                 scratch folder instead.
+#
+# A full console log of the run (everything printed by every stage, in order,
+# timestamped) is written alongside the results, as pipeline_log_<time>.txt in
+# dir_transfer - so a look back at what happened during a given run does not
+# depend on anyone having kept a terminal scrollback. Output still appears on
+# screen as normal at the same time.
 #
 # To override a path on a particular machine, set it before the source() line
 # below (e.g. dir_raw <- "..."), and R/config/directories.R will leave it alone.
@@ -44,21 +50,45 @@ run_stage <- function(label, files) {
   }
 }
 
-run_stage("1. site of diagnosis", c(
-  "R/derive_5_digit_site_code/02_add_site_of_diagnosis.R",
-  "R/derive_5_digit_site_code/03_site_diagnostics.R"))
+# the whole run is wrapped in a function so the log file below is opened and
+# closed reliably by on.exit() - which needs a real function call to attach to.
+# At the top level of a script, on.exit() only behaves correctly when the script
+# is run directly by Rscript; wrapping it here means the log still closes
+# properly even if this file is ever sourced from elsewhere, and even if a stage
+# below fails partway through (on.exit() fires on an error exit too, so the log
+# is still flushed and closed, with whatever ran before the failure captured in
+# it - not silently lost or left open).
+run_full_pipeline <- function() {
+  log_file <- NULL
+  if (!is.null(dir_transfer)) {
+    dir.create(dir_transfer, recursive = TRUE, showWarnings = FALSE)
+    log_file <- file.path(dir_transfer,
+                          paste0("pipeline_log_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt"))
+    log_con <- file(log_file, open = "wt")
+    sink(log_con, split = TRUE)   # split = TRUE: still visible on screen too
+    on.exit({ sink(); close(log_con) }, add = TRUE)
+    cat("Pipeline run started:", format(Sys.time()), "\n")
+  }
+  
+  run_stage("1. site of diagnosis", c(
+    "R/derive_5_digit_site_code/02_add_site_of_diagnosis.R",
+    "R/derive_5_digit_site_code/03_site_diagnostics.R"))
+  
+  run_stage("2. CWT merge and waiting times", c(
+    "R/merge_cwt_to_get_dtt/02_derive_pathway.R",
+    "R/merge_cwt_to_get_dtt/03_cwt_merge.R"))
+  
+  run_stage("3. positive-deviance analysis", c(
+    "R/identify_positive_deviants/02_build_cohort.R",
+    "R/identify_positive_deviants/03_table1_characteristics.R",
+    "R/identify_positive_deviants/04_estimation_weights.R",
+    "R/identify_positive_deviants/05_shrinkage.R",
+    "R/identify_positive_deviants/06_ranks_caterpillars.R"))
+  
+  cat("\nPipeline complete:", format(Sys.time()), "\n")
+  cat("  patient-level data:   ", dir_out, "\n")
+  cat("  results for transfer: ", dir_transfer, "\n")
+  if (!is.null(log_file)) cat("  run log:              ", basename(log_file), "\n")
+}
 
-run_stage("2. CWT merge and waiting times", c(
-  "R/merge_cwt_to_get_dtt/02_derive_pathway.R",
-  "R/merge_cwt_to_get_dtt/03_cwt_merge.R"))
-
-run_stage("3. positive-deviance analysis", c(
-  "R/identify_positive_deviants/02_build_cohort.R",
-  "R/identify_positive_deviants/03_table1_characteristics.R",
-  "R/identify_positive_deviants/04_estimation_weights.R",
-  "R/identify_positive_deviants/05_shrinkage.R",
-  "R/identify_positive_deviants/06_ranks_caterpillars.R"))
-
-cat("\nPipeline complete.\n")
-cat("  patient-level data:   ", dir_out, "\n")
-cat("  results for transfer: ", dir_transfer, "\n")
+run_full_pipeline()

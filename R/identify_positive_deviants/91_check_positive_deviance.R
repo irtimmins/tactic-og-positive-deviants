@@ -165,9 +165,13 @@ expect("the hospital table lists every site present before the floor",
        setequal(hosp_tab$hospital, c("RXX01", "RXX02", "RYY01", "RWW01")))
 expect("multi-hospital trusts are sorted first in the table",
        hosp_tab$hospitals_in_trust[1] == 2)
-expect("the small site is flagged for exclusion, the big ones are not",
-       hosp_tab$excluded_lt5_per_year[hosp_tab$hospital == "RWW01"] &&
-         !hosp_tab$excluded_lt5_per_year[hosp_tab$hospital == "RXX01"])
+expect("the hospital table shows full trust and hospital names",
+       all(c("trust_name", "hospital_name") %in% names(hosp_tab)))
+included_col <- grep("^Included in analysis", names(hosp_tab), value = TRUE)
+expect("the small site is marked not included, the big ones are marked included",
+       length(included_col) == 1 &&
+         hosp_tab[[included_col]][hosp_tab$hospital == "RWW01"] == "No" &&
+         hosp_tab[[included_col]][hosp_tab$hospital == "RXX01"] == "Yes")
 final_hosps <- get("df", envir = flow_env)$diag_hosp_canon
 expect("the too-small site is excluded from the final cohort",
        !("RWW01" %in% final_hosps) && all(c("RXX01", "RXX02", "RYY01") %in% final_hosps))

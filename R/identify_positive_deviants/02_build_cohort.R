@@ -127,6 +127,10 @@ fc("Site of diagnosis recorded", df, n_hosp = n_distinct(df$diag_hosp_canon))
 if (file.exists(site_trust_map_csv)) {
   site_map <- read.csv(site_trust_map_csv, colClasses = "character") %>%
     distinct(site_code, parent_trust)
+  # the hospital's full name, for the per-hospital table further down - kept
+  # separate from site_map so df's own columns are unaffected here.
+  hosp_name_lookup <- read.csv(site_trust_map_csv, colClasses = "character") %>%
+    distinct(site_code, name)
   df <- df %>%
     left_join(site_map, by = c("diag_hosp_canon" = "site_code")) %>%
     mutate(diag_trust = ifelse(is.na(parent_trust) | parent_trust == "",
@@ -136,12 +140,17 @@ if (file.exists(site_trust_map_csv)) {
   cat(sprintf("note: no site->trust map at %s - using the site code prefix as the trust\n",
               site_trust_map_csv))
   df <- df %>% mutate(diag_trust = substr(diag_hosp_canon, 1, 3))
+  hosp_name_lookup <- tibble(site_code = character(), name = character())
 }
 
 # restrict to sites whose operating trust is a recognised OG-cancer diagnoser.
 if (file.exists(valid_trusts_csv)) {
-  valid_trusts <- read.csv(valid_trusts_csv, colClasses = "character")$trust_code
-  valid_trusts <- trimws(valid_trusts)
+  valid_trusts_full <- read.csv(valid_trusts_csv, colClasses = "character")
+  valid_trusts <- trimws(valid_trusts_full$trust_code)
+  # the trust's full name, for the per-hospital table further down.
+  trust_name_lookup <- valid_trusts_full %>%
+    mutate(trust_code = trimws(trust_code)) %>%
+    distinct(trust_code, trust_name)
   n_before <- nrow(df)
   dropped_trust <- df %>%
     filter(!diag_trust %in% valid_trusts) %>%
@@ -159,6 +168,7 @@ if (file.exists(valid_trusts_csv)) {
 } else {
   cat(sprintf("note: no valid-trust list at %s - trust restriction skipped\n",
               valid_trusts_csv))
+  trust_name_lookup <- tibble(trust_code = character(), trust_name = character())
 }
 
 # per-year diagnosis counts by site, completed over every year in the window so a
@@ -179,33 +189,49 @@ site_min <- site_year %>%
 
 # a per-hospital table, produced BEFORE the volume floor is applied, so every
 # site is visible - including those about to be excluded. One row per hospital
-# (site of diagnosis) with its operating trust, total patients, patients per
-# year (mean over the window), and a flag for whether it would be excluded on
-# the >= min_per_year-in-every-year rule. The exclusion uses the strictest rule:
-# a site must reach min_per_year in each individual year, so the flag is driven
-# by min_year, not by the average.
+# (site of diagnosis) with its full name and operating trust (code and full
+# name), total patients, patients per year (mean over the window), and whether
+# it would be kept under the >= min_per_year-in-every-year rule. That rule uses
+# the strictest reading: a site must reach min_per_year in each individual year,
+# so the yes/no is driven by min_year, not by the average.
 site_trust_of <- df %>% distinct(diag_hosp_canon, diag_trust)
 hosp_table <- site_min %>%
   left_join(site_trust_of, by = "diag_hosp_canon") %>%
+  left_join(hosp_name_lookup, by = c("diag_hosp_canon" = "site_code")) %>%
+  left_join(trust_name_lookup, by = c("diag_trust" = "trust_code")) %>%
   group_by(diag_trust) %>%
   mutate(hosps_in_trust = n_distinct(diag_hosp_canon)) %>%
   ungroup() %>%
-  mutate(excluded_lt5_per_year = min_year < min_per_year) %>%
+  mutate(
+    # a code with no match in the reference lookup (a decommissioned or
+    # miscoded site, or the trust list absent) still shows something, rather
+    # than a blank cell.
+    name       = ifelse(is.na(name) | name == "", diag_hosp_canon, name),
+    trust_name = ifelse(is.na(trust_name) | trust_name == "", diag_trust, trust_name),
+    included   = ifelse(min_year >= min_per_year, "Yes", "No")) %>%
   # trusts reporting more than one hospital first, then by trust and hospital
   arrange(desc(hosps_in_trust), diag_trust, desc(total), diag_hosp_canon) %>%
   transmute(
     trust        = diag_trust,
+    trust_name   = trust_name,
     hospitals_in_trust = hosps_in_trust,
     hospital     = diag_hosp_canon,
+    hospital_name = name,
     patients     = total,
     per_year     = round(per_year, 1),
     min_year_n   = min_year,
-    excluded_lt5_per_year)
+    included)
+
+# the included/excluded column gets its full wording only here, right before
+# the table is shown and written - the plain "included" name above is what the
+# rest of the code works with.
+names(hosp_table)[names(hosp_table) == "included"] <-
+  sprintf("Included in analysis (>=%d cases per year)", min_per_year)
 
 cat(sprintf("\nPer-hospital patient counts (%d-year window: %s). Multi-hospital",
             n_years, paste(range(wyears), collapse = "-")),
-    "trusts first; the flag marks sites that would be excluded on the",
-    sprintf("<%d-per-year (every year) rule:\n", min_per_year))
+    "trusts first; a site is included only if it reaches",
+    sprintf(">= %d diagnoses in every year of the window:\n", min_per_year))
 print(as.data.frame(hosp_table), row.names = FALSE)
 write.csv(hosp_table, file.path(out_dir, "pd_hospital_counts.csv"),
           row.names = FALSE)

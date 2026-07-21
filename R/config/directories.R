@@ -53,7 +53,12 @@ for (.dir_to_make in c(dir_out, dir_ref, dir_debug))
 # repo by accident - dir_out should be an absolute path (a drive letter, a root,
 # or a UNC path), not something relative that resolves inside the working copy.
 # The test scripts set dir_out to a tempfile(), which is absolute, so they pass.
-if (!grepl("^([A-Za-z]:[\\\\/]|/|\\\\\\\\)", dir_out))
+# The one deliberate exception is the synthetic end-to-end dry run, which writes
+# made-up data to a repo-relative Data/OG_test on purpose; it sets
+# allow_repo_relative_out <- TRUE to say so explicitly, so the guard still fires
+# for every real run that has not opted out.
+if (!isTRUE(get0("allow_repo_relative_out")) &&
+    !grepl("^([A-Za-z]:[\\\\/]|/|\\\\\\\\)", dir_out))
   stop("dir_out (", dir_out, ") looks like a path relative to the repository, ",
        "not the restricted data drive. Patient-level data must not be written ",
        "inside the repo - check dir_out.", call. = FALSE)

@@ -35,28 +35,62 @@ sus <- process_fit(readRDS(file.path(out_dir, "stan_sustained.rds")))
 write.csv(sus, file.path(out_dir, "ranks_sustained.csv"), row.names = FALSE)
 
 # caterpillar plot, if ggplot2 is available ----------------------------------
-if (requireNamespace("ggplot2", quietly = TRUE)) {
+# the plot follows the house style used in the summary figure: theme_classic,
+# points and credible-interval segments in a single house colour, a heavier
+# semi-transparent reference line, and a y-axis that can be floored at zero. The
+# style is tunable in the small block below.
+if (requireNamespace("ggplot2", quietly = TRUE) &&
+    requireNamespace("scales", quietly = TRUE)) {
   library(ggplot2)
-  caterpillar <- function(d, ylab, title, highlight = NA) {
-    d <- d %>% arrange(exp_rank) %>% mutate(rank_order = row_number())
+  library(scales)
+  
+  # tunable style (adjust here) ----------------------------------------------
+  axis_title_size <- 10      # axis titles
+  axis_text_size  <- 9       # axis tick labels
+  cat_ci_alpha    <- 0.30    # credible-interval opacity - lighter than the points
+  cat_ci_lwd      <- 0.25    # credible-interval line width
+  cat_pt_size     <- 0.8     # point size
+  cat_xtitle_gap  <- 2.5     # pt gap from the x-axis line to the "Hospitals" title
+  col_base        <- "darkblue"    # points and intervals
+  col_high        <- "darkorange3" # a highlighted hospital, if one is named
+  
+  # hospitals ordered by expected posterior rank; segment = credible interval; a
+  # grey reference line at the mean. from_zero floors the y-axis at 0.
+  caterpillar <- function(d, ylab, title, ref_line = mean(d$post_mean),
+                          from_zero = FALSE, highlight = NA) {
+    d <- d %>% arrange(exp_rank) %>% mutate(rank = row_number())
     hl <- if (!is.na(highlight)) d$diag_hosp == highlight else rep(FALSE, nrow(d))
-    p <- ggplot(d, aes(rank_order, post_mean)) +
-      geom_hline(yintercept = mean(d$post_mean), colour = "grey50") +
-      geom_linerange(aes(ymin = ci_lo, ymax = ci_hi), colour = "grey70") +
-      geom_point(size = 0.9) +
-      labs(x = "Hospital (ordered by rank)", y = ylab, title = title) +
-      theme_bw() +
-      theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-    if (any(hl)) p <- p + geom_point(data = d[hl, ], colour = "firebrick", size = 2)
+    p <- ggplot(d, aes(rank, post_mean)) +
+      geom_hline(yintercept = ref_line, linewidth = 1, alpha = 0.6,
+                 colour = "gray30") +
+      geom_segment(aes(xend = rank, y = ci_lo, yend = ci_hi),
+                   colour = col_base, alpha = cat_ci_alpha, linewidth = cat_ci_lwd) +
+      geom_point(shape = 16, colour = col_base, size = cat_pt_size) +
+      labs(title = title) +
+      theme_classic(base_size = 11) +
+      theme(axis.title  = element_text(size = axis_title_size),
+            axis.text   = element_text(size = axis_text_size),
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.ticks.length.x = unit(0, "pt"),
+            axis.title.x = element_text(size = axis_title_size,
+                                        margin = margin(t = cat_xtitle_gap)),
+            legend.position = "none") +
+      scale_x_continuous("Hospitals") +
+      scale_y_continuous(ylab, breaks = breaks_width(10))
+    if (from_zero) p <- p + coord_cartesian(ylim = c(0, max(d$ci_hi) * 1.02))
+    if (any(hl))
+      p <- p + geom_point(data = d[hl, ], colour = col_high, size = cat_pt_size * 2)
     p
   }
   ggsave(file.path(out_dir, "caterpillar_sustained.pdf"),
-         caterpillar(sus, "Standardised days, endoscopy to decision-to-treat",
-                     "Sustained performance", highlight_hosp),
+         caterpillar(sus, "Mean waiting time, endoscopy to decision-to-treat (days)",
+                     "Sustained performance", from_zero = TRUE,
+                     highlight = highlight_hosp),
          width = 7, height = 6)
   cat("caterpillar plot written to caterpillar_sustained.pdf\n")
 } else {
-  cat("ggplot2 not installed - caterpillar plot skipped (CSV written).\n")
+  cat("ggplot2 / scales not installed - caterpillar plot skipped (CSV written).\n")
 }
 
 # ranking table --------------------------------------------------------------

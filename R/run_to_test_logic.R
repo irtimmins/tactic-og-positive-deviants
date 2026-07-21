@@ -1,5 +1,5 @@
 # =============================================================================
-# run_test.R  -  prove the whole pipeline's logic on synthetic data
+# run_to_test_logic.R  -  prove the whole pipeline's logic on synthetic data
 # -----------------------------------------------------------------------------
 # WHERE: anywhere - the internet machine, a laptop, the server. Needs no real
 #        data, no internet, and (for the pure-logic parts) none of the modelling
