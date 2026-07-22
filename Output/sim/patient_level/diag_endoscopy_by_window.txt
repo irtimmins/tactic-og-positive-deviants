@@ -1,0 +1,6 @@
+window_days	patients_matched
+7	66388
+14	66388
+30	67204
+60	68354
+90	68354

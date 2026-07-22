@@ -1,0 +1,5 @@
+outcome	patients	pct
+site read from the endoscopy episode	64041	92.3
+endoscopy found, but its site was unusable	2347	3.4
+APC endoscopy present, but not within the window	1966	2.8
+no HES-APC endoscopy record at all	1022	1.5

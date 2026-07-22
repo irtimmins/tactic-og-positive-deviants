@@ -1,0 +1,4 @@
+step	patients_moved	pct_of_picked
+confirmation (ICD-O) over trust alone	1373	1.83
+morphology as a tie-break	1789	2.38
+SNOMED confirmation on top	4073	5.42
