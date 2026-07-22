@@ -96,6 +96,11 @@ path_cosd_dta  <- file.path(dir_raw,
                             "20260212_all_cosddiagnosis_rapid_202601_OG.dta")
 path_cwt_dta   <- file.path(dir_raw,
                             "20260212_all_cwt_rapid_202601_OG.dta")
+# the HES-APC extract, supplied separately from the 20260212 set and much larger
+# than the others. The endoscopy-site stage reads the cohort-filtered copy
+# (f_hes_extract, below) rather than this, except when that copy has to be made.
+path_hes_apc_dta <- file.path(dir_raw,
+                              "20260320_nic709865_hes_apc_202510_OG.dta")
 
 # -----------------------------------------------------------------------------
 # Reference lookups brought in from the internet machine
@@ -116,6 +121,18 @@ f_valid_trusts   <- file.path(dir_ref, "valid_diagnosing_trusts.csv")
 f_site_lookup <- file.path(dir_out, "og_site_of_diagnosis_lookup.rds")
 f_cohort_site <- file.path(dir_out, "og_cohort_site.rds")
 f_cohort_cwt  <- file.path(dir_out, "og_cohort_cwt.rds")
+
+# The endoscopy-site build sits alongside that chain rather than inside it: it
+# reads the rapid extract and HES, and hands the deviance stage a patient ->
+# five-character-site lookup to join in. Its files are named here because the
+# deviance stage reads f_endoscopy_lookup and must not have to guess the name.
+#   f_hes_extract      the HES-APC extract cut down to the cohort's patients,
+#                      made once by 02a and reused (the raw file is very large)
+#   f_endoscopy_lookup one row per patient with an endoscopy site - the handoff
+#   f_cohort_endoscopy the registry plus the site and flags, for the diagnostics
+f_hes_extract      <- file.path(dir_out, "hes_extract.rds")
+f_endoscopy_lookup <- file.path(dir_out, "og_endoscopy_hes_lookup.rds")
+f_cohort_endoscopy <- file.path(dir_out, "og_cohort_endoscopy_hes.rds")
 
 # -----------------------------------------------------------------------------
 # What counts as OG

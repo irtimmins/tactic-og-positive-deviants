@@ -23,7 +23,7 @@
 #         Data/OG/og_cohort_site.rds               (the registry plus the site)
 # =============================================================================
 
-source("R/derive_5_digit_site_code/01_define_parameters.R")
+source("R/derive_hospital_code_from_cosd/01_define_parameters.R")
 
 # read_rapid() and read_cosd() are here so the checking script can hand this
 # script made-up data instead of the real files: define either one before

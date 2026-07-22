@@ -64,6 +64,13 @@ ods_base <- "https://directory.spineservices.nhs.uk/ORD/2-0-0/organisations"
 role_trust      <- "RO197"
 role_trust_site <- "RO198"
 rel_operated_by <- "RE6"
+# RO177 is a prescribing cost centre - a GP practice. Named so a practice code
+# appearing in the site field is reported as one rather than as an unexplained
+# "other". Other roles are not named here on purpose: rather than hard-code a
+# guess at every independent-sector role id, the run prints the roles it actually
+# met (see the summary below), so the list can be extended from what the data
+# turns out to contain.
+role_gp_practice <- c("RO177")
 
 # -----------------------------------------------------------------------------
 # the codes to look up
@@ -136,11 +143,28 @@ ask_ods <- function(code) {
 
 # turn the raw answer into the fields the build wants. Shared so that a single
 # lookup and the whole batch describe a code the same way.
+#
+# provider_kind is a plainer reading of the same answer, added because the HES
+# sitetret codes are not all NHS trust sites: the field carries independent
+# sector sites (the NT4xx, NVCxx and NPGxx families) as well. Those are real
+# places a patient can be scoped or treated, so calling them simply "not a
+# hospital site" - which is what is_hospital_site does, since it asks only about
+# NHS trust roles - loses the distinction between an independent hospital and a
+# GP practice or a placeholder. is_hospital_site is left exactly as it was, so
+# anything already relying on it is unaffected.
 derive_fields <- function(row) {
   row %>%
     mutate(
       is_hospital_site = found & record_class == "RC2" &
         primary_role %in% c(role_trust_site, role_trust),
+      provider_kind = case_when(
+        !found                                    ~ "not in ODS",
+        record_class == "RC2" &
+          primary_role %in% c(role_trust_site, role_trust) ~ "NHS trust site",
+        primary_role == role_trust                ~ "NHS trust",
+        primary_role %in% role_gp_practice        ~ "GP practice",
+        record_class == "RC2"                     ~ "other site (independent sector or similar)",
+        TRUE                                      ~ "other ODS organisation"),
       # where ODS gives no parent - a site with no recorded operator, or a code
       # that is itself a trust - fall back to the first three characters so the
       # column is never empty, and mark that this was assumed
@@ -170,23 +194,48 @@ if (!exists("skip_ods_run") || !isTRUE(skip_ods_run)) {
   # column order
   site_trust <- bind_rows(raw) %>%
     select(site_code, name, parent_trust, trust_is_prefix, parent_from_ods,
-           status, is_hospital_site, record_class, primary_role, predecessor,
-           found)
+           status, is_hospital_site, provider_kind, record_class, primary_role,
+           predecessor, found)
   
   write.csv(site_trust, f_site_trust_map, row.names = FALSE)
   
   # -- what the lookup found, in plain terms ----------------------------------
+  # Every code gets a row and a parent_trust, whether or not ODS knew it (an
+  # unknown code falls back to its first three characters), so the map is
+  # complete by construction. What varies is how well founded each answer is,
+  # which is what these two tables show.
   cat("\nOf", nrow(site_trust), "site codes looked up:\n")
-  summ <- tibble(
-    finding = c(
-      "known to ODS as a hospital site",
-      "known to ODS, but not a hospital site (GP practice, trust code, other)",
-      "not found in ODS at all"),
-    codes = c(
-      sum(site_trust$is_hospital_site),
-      sum(site_trust$found & !site_trust$is_hospital_site),
-      sum(!site_trust$found)))
-  print(as.data.frame(summ), row.names = FALSE)
+  site_trust %>%
+    count(provider_kind, name = "codes") %>%
+    mutate(pct = round(100 * codes / sum(codes), 1)) %>%
+    arrange(desc(codes)) %>%
+    as.data.frame() %>%
+    print(row.names = FALSE)
+  
+  cat("\nEvery code has a parent trust:",
+      sum(!is.na(site_trust$parent_trust)), "of", nrow(site_trust),
+      "|  from ODS:", sum(site_trust$parent_from_ods),
+      "|  fell back to the first three characters:",
+      sum(!site_trust$parent_from_ods), "\n")
+  
+  # the roles actually met, so an independent-sector or other role that matters
+  # here can be recognised and named in role_gp_practice / provider_kind above
+  # rather than guessed at in advance
+  cat("\nThe ODS roles these codes actually carry:\n")
+  site_trust %>%
+    filter(found) %>%
+    count(primary_role, record_class, name = "codes") %>%
+    arrange(desc(codes)) %>%
+    head(15) %>%
+    as.data.frame() %>%
+    print(row.names = FALSE)
+  
+  unknown <- site_trust %>% filter(!found)
+  if (nrow(unknown)) {
+    cat("\nCodes ODS has never heard of:", nrow(unknown),
+        "- these keep a first-three-character trust, which is a guess.",
+        "\nA sample:", paste(head(unknown$site_code, 15), collapse = " "), "\n")
+  }
   
   hosp <- site_trust %>% filter(is_hospital_site)
   cat("\nOf the", nrow(hosp), "hospital sites, does the parent trust match the",
@@ -216,14 +265,20 @@ if (!exists("skip_ods_run") || !isTRUE(skip_ods_run)) {
       "- kept in the file, since a patient can have been diagnosed at a site",
       "that has since shut.\n")
   
+  kind_lines <- site_trust %>%
+    count(provider_kind, name = "codes") %>%
+    arrange(desc(codes)) %>%
+    mutate(line = paste0("  ", provider_kind, ": ", codes)) %>%
+    pull(line)
+  
   writeLines(c(
     "Site to parent-trust lookup, from the ODS ORD API",
     paste("Endpoint:", ods_base),
     paste("Site codes looked up:", nrow(site_trust)),
-    paste("  hospital sites:", sum(site_trust$is_hospital_site)),
-    paste("  not a hospital site:",
-          sum(site_trust$found & !site_trust$is_hospital_site)),
-    paste("  not found in ODS:", sum(!site_trust$found)),
+    kind_lines,
+    paste("  parent trust from ODS:", sum(site_trust$parent_from_ods)),
+    paste("  parent trust assumed from the first three characters:",
+          sum(!site_trust$parent_from_ods)),
     paste("  parent trust differs from first three characters:",
           sum(site_trust$is_hospital_site & !site_trust$trust_is_prefix)),
     paste("Built:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))),

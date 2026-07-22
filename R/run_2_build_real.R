@@ -22,4 +22,4 @@
 
 # dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"   # uncomment to override
 
-source("R/derive_5_digit_site_code/00_master.R")
+source("R/derive_hospital_code_from_cosd/00_master.R")

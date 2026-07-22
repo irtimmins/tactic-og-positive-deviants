@@ -88,6 +88,14 @@ add_cohort_extras <- function(df, seed = NULL) {
     mutate(
       diagnosisdate  = dx,
       endodateHES    = endo_date,
+      # the rapid record's own endoscopy flag and trust. endotrustHES is the
+      # three-character provider on almost every real row, with the occasional
+      # five-character site - the mix is the reason the HES stage exists, so the
+      # simulated field carries it too.
+      endoHES        = as.integer(!is.na(endo_date)),
+      endotypeHES    = ifelse(is.na(endo_date), "",
+                              sample(c("G451", "G459", "G161", "G169"), n, TRUE)),
+      endotrustHES   = ifelse(is.na(endo_date), "", tr_for),
       EMR_ESDdateHES = emresd_date,
       surgery_date   = surgery_date,
       sact_first_date = sact_date,
@@ -196,4 +204,111 @@ make_cwt_extract <- function(cohort, seed = NULL) {
     }
   }
   do.call(rbind, rows)
+}
+
+# =============================================================================
+# make_hes_extract  -  build a HES-APC extract keyed on a cohort's own patients
+# -----------------------------------------------------------------------------
+# The endoscopy-site stage re-finds each patient's diagnostic endoscopy in HES,
+# so a realistic dry run needs the HES episodes to belong to the SAME patients as
+# the cohort - not a separately-invented set. This builds that extract from a
+# cohort that already carries endodateHES (as add_cohort_extras leaves it): for
+# each patient with an endoscopy date it writes an episode carrying a diagnostic
+# endoscopy code, with the operation date on or a day after that date, and a
+# five-character sitetret inside the patient's trust.
+#
+# Most patients get a matchable episode. A few are given the awkward cases the
+# stage has to survive: an endoscopy weeks away from the recorded date, an
+# episode with no endoscopy code at all, and a blank or default site. Some
+# patients get no episode, standing in for those absent from the extract.
+#
+# Columns match what the endoscopy stage reads: patient_pseudo_id, epistart,
+# epiend, admidate, epiorder, epitype, sitetret, procode3, and the 24
+# opertn_/opdate_ pairs. Returns a data frame (write it out with
+# haven::write_dta, or hand it straight to the stage through read_hes).
+# =============================================================================
+
+make_hes_extract <- function(cohort, seed = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+
+  trust_col <- intersect(c("diag_trust", "true_trust", "site_dx_trust",
+                           "diagnosis_trust"), names(cohort))[1]
+  tr <- if (is.na(trust_col)) NA_character_ else as.character(cohort[[trust_col]])
+
+  has_endo <- !is.na(cohort$endodateHES)
+  i_endo <- which(has_endo)
+  n <- length(i_endo)
+  if (n == 0) stop("make_hes_extract: no patient has an endodateHES")
+
+  endo_codes  <- c("G451", "G459", "G161", "G169", "G162", "G433")
+  other_codes <- c("G011", "G274", "H221", "X403")
+
+  # what each patient's episode is built to be. The proportions follow what the
+  # real within-extract data showed: nearly all matchable, a few off-window, a
+  # few with no endoscopy code, and a few not in the extract at all.
+  u <- runif(n)
+  kind <- ifelse(u < 0.930, "sited",
+          ifelse(u < 0.958, "offwindow",
+          ifelse(u < 0.972, "no_endo_code", "absent")))
+
+  keep <- kind != "absent"
+  idx  <- i_endo[keep]
+  kind <- kind[keep]
+  m <- length(idx)
+
+  ref  <- as.Date(cohort$endodateHES[idx])
+  prov <- substr(tr[idx], 1, 3)
+  # a five-character site inside the patient's trust
+  site <- paste0(prov, sprintf("%02d", sample(1:12, m, TRUE)))
+  # spoil a few sites the way the real field is spoiled
+  spoil <- runif(m)
+  site[spoil < 0.02] <- ""
+  site[spoil >= 0.02 & spoil < 0.03] <- "00000"
+
+  # the operation date: on the reference date for a matchable episode, weeks off
+  # for an off-window one
+  opdate <- ref + ifelse(kind == "sited", sample(0:1, m, TRUE),
+                         sample(20:45, m, TRUE))
+  code   <- ifelse(kind == "no_endo_code", sample(other_codes, m, TRUE),
+                   sample(endo_codes, m, TRUE))
+  # a tenth of the dates are written without dashes, as in the real file
+  opdate_txt <- ifelse(runif(m) < 0.1, format(opdate, "%Y%m%d"),
+                       format(opdate, "%Y-%m-%d"))
+
+  op <- matrix("-", m, 24, dimnames = list(NULL, sprintf("opertn_%02d", 1:24)))
+  od <- matrix("",  m, 24, dimnames = list(NULL, sprintf("opdate_%02d", 1:24)))
+  slot <- sample(1:4, m, TRUE)          # the code is not always in slot 1
+  op[cbind(seq_len(m), slot)] <- code
+  od[cbind(seq_len(m), slot)] <- opdate_txt
+
+  out <- data.frame(
+    patient_pseudo_id = as.character(cohort$patient_pseudo_id[idx]),
+    epistart = format(opdate, "%Y-%m-%d"),
+    epiend   = format(opdate, "%Y-%m-%d"),
+    admidate = format(opdate, "%Y-%m-%d"),
+    epiorder = 1L,
+    epitype  = 1L,
+    sitetret = site,
+    procode3 = prov,
+    stringsAsFactors = FALSE)
+  out <- cbind(out, as.data.frame(op, stringsAsFactors = FALSE),
+               as.data.frame(od, stringsAsFactors = FALSE))
+
+  # a second, later episode for some patients, so the choice between episodes is
+  # exercised rather than every patient having exactly one
+  extra <- out[sample(seq_len(m), round(0.2 * m)), , drop = FALSE]
+  if (nrow(extra)) {
+    later <- as.Date(extra$epistart) + sample(60:200, nrow(extra), TRUE)
+    extra$epistart <- extra$epiend <- extra$admidate <- format(later, "%Y-%m-%d")
+    extra$epiorder <- 2L
+    for (j in 1:24) {
+      extra[[sprintf("opertn_%02d", j)]] <- "-"
+      extra[[sprintf("opdate_%02d", j)]] <- ""
+    }
+    extra$opertn_01 <- sample(other_codes, nrow(extra), TRUE)
+    extra$opdate_01 <- format(later, "%Y-%m-%d")
+    out <- rbind(out, extra)
+  }
+
+  out[sample(seq_len(nrow(out))), , drop = FALSE]   # row order must not matter
 }

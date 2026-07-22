@@ -17,8 +17,8 @@
 
 source("R/config/directories.R")
 source("R/shared/utils.R")
-source("R/derive_5_digit_site_code/_load_packages.R")
-source("R/derive_5_digit_site_code/_helpers.R")
+source("R/derive_hospital_code_from_cosd/_load_packages.R")
+source("R/derive_hospital_code_from_cosd/_helpers.R")
 
 # -----------------------------------------------------------------------------
 # What counts as a site code

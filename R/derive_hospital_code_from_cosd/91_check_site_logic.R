@@ -18,7 +18,7 @@
 #      since that is where the analysis ends up.
 #
 # Run from the project root:
-#   Rscript R/derive_5_digit_site_code/91_check_site_logic.R
+#   Rscript R/derive_hospital_code_from_cosd/91_check_site_logic.R
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -28,7 +28,7 @@ suppressPackageStartupMessages({
   library(purrr)
   library(magrittr)   # for %>%
 })
-dir_build <- "R/derive_5_digit_site_code"
+dir_build <- "R/derive_hospital_code_from_cosd"
 
 # This script points dir_out at a temporary folder and hands 02 made-up data.
 # Put the session back as it was on the way out, however it exits, so a later

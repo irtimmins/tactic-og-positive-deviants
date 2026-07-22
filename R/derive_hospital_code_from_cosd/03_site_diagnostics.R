@@ -26,7 +26,7 @@
 # Run as part of 00_master, after 02.
 # =============================================================================
 
-source("R/derive_5_digit_site_code/01_define_parameters.R")
+source("R/derive_hospital_code_from_cosd/01_define_parameters.R")
 
 # Written as tab-separated .txt, not .csv, on purpose. Something on the server's
 # transfer path appends a few kilobytes of encrypted footer to .csv files - the

@@ -60,7 +60,8 @@ if (!is.null(get0("dir_transfer")))
 checks <- c(
   "R/fetch_reference_data/11_check_snomed_map.R",
   "R/fetch_reference_data/21_check_site_trust_map.R",
-  "R/derive_5_digit_site_code/91_check_site_logic.R",
+  "R/derive_hospital_code_from_cosd/91_check_site_logic.R",
+  "R/derive_hospital_code_from_hes/91_check_endoscopy_logic.R",
   "R/merge_cwt_to_get_dtt/91_check_cwt_merge.R",
   "R/identify_positive_deviants/91_check_positive_deviance.R")
 

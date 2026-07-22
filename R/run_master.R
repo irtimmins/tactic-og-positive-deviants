@@ -71,9 +71,19 @@ run_full_pipeline <- function() {
   }
   
   run_stage("1. site of diagnosis", c(
-    "R/derive_5_digit_site_code/02_add_site_of_diagnosis.R",
-    "R/derive_5_digit_site_code/03_site_diagnostics.R"))
+    "R/derive_hospital_code_from_cosd/02_add_site_of_diagnosis.R",
+    "R/derive_hospital_code_from_cosd/03_site_diagnostics.R"))
   
+  # the endoscopy hospital comes from HES rather than COSD, and is read off the
+  # rapid extract directly, so it does not sit in the site -> CWT -> deviance
+  # handoff chain. It runs here, before the deviance stage, because that stage
+  # joins the lookup it writes. 02a only re-reads the large raw HES file when the
+  # cut-down extract is missing.
+  run_stage("1b. endoscopy hospital from HES", c(
+    "R/derive_hospital_code_from_hes/02a_extract_hes_apc.R",
+    "R/derive_hospital_code_from_hes/02_add_endoscopy_site.R",
+    "R/derive_hospital_code_from_hes/03_endoscopy_diagnostics.R"))
+
   run_stage("2. CWT merge and waiting times", c(
     "R/merge_cwt_to_get_dtt/02_derive_pathway.R",
     "R/merge_cwt_to_get_dtt/03_cwt_merge.R"))

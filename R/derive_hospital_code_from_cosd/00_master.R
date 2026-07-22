@@ -36,7 +36,7 @@ source("R/config/directories.R")
 # off, so the log stays open for the whole run and still closes cleanly if a
 # step errors partway through.
 run_og_build <- function() {
-  dir_build <- "R/derive_5_digit_site_code"
+  dir_build <- "R/derive_hospital_code_from_cosd"
   step <- function(file) {
     cat("\n========== ", file, " ==========\n", sep = "")
     source(file.path(dir_build, file), local = new.env())

@@ -8,7 +8,7 @@
 # the real extracts, then runs all three real stages against it by the same file
 # handoff the real pipeline uses -
 #
-#   1. site of diagnosis     (derive_5_digit_site_code)   -> og_cohort_site.rds
+#   1. site of diagnosis     (derive_hospital_code_from_cosd)   -> og_cohort_site.rds
 #   2. CWT merge / waiting    (merge_cwt_to_get_dtt)       -> og_cohort_cwt.rds
 #   3. positive deviants      (identify_positive_deviants) -> pd_cohort.rds, ...
 #
@@ -75,10 +75,10 @@ use_test_paths <- function(out = dir_test) {
 # og_cohort_site.rds. That output has the registry and the derived site, but not
 # the treatment columns the later stages need - those are added just below.
 stage_banner("1. site of diagnosis")
-source("R/derive_5_digit_site_code/90_simulate_inputs.R")
+source("R/derive_hospital_code_from_cosd/90_simulate_inputs.R")
 
 use_test_paths()
-source("R/derive_5_digit_site_code/00_master.R")
+source("R/derive_hospital_code_from_cosd/00_master.R")
 
 # enrich og_cohort_site.rds with treatment dates, stage and covariates, so the
 # CWT and positive-deviance stages have everything they read. This is what makes
@@ -123,6 +123,34 @@ cohort$diagnosis_year[sotn] <- as.integer(format(cohort$diagnosisdate[sotn], "%Y
 saveRDS(cohort, site_rds)
 cat(sprintf("enriched %s (treatment, stage, covariates); shaped a %d-patient audit cohort over 2023-2024 across %d sites\n",
             basename(site_rds), n_sotn, length(busy_sites)))
+
+# ---------------------------------------------------------------------------
+# 1b. endoscopy hospital from HES
+# ---------------------------------------------------------------------------
+# The endoscopy stage re-finds each patient's diagnostic endoscopy in HES-APC and
+# reads its five-character site. As with CWT, the HES episodes have to belong to
+# the SAME patients as the cohort, so they are built from it with
+# make_hes_extract rather than from the stage's own simulator (which invents its
+# own separate patients). It runs after the date shifting above, so the episodes
+# sit against the cohort's final endoscopy dates.
+#
+# The stage normally reads the rapid dta and the cut-down HES extract from disk.
+# Here it is handed the enriched cohort and the built extract directly through
+# read_rapid / read_hes, which is the same injection the stage's own checks use -
+# the raw simulated rapid dta has no endoscopy columns, they were added by
+# add_cohort_extras.
+stage_banner("1b. endoscopy hospital from HES")
+hes_extract <- make_hes_extract(cohort, seed = sim_seed)
+cat(sprintf("built a HES-APC extract of %d episodes for %d of the cohort's patients\n",
+            nrow(hes_extract), length(unique(hes_extract$patient_pseudo_id))))
+
+use_test_paths()
+assign("read_rapid", function() cohort,      envir = globalenv())
+assign("read_hes",   function() hes_extract, envir = globalenv())
+source("R/derive_hospital_code_from_hes/02_add_endoscopy_site.R")
+source("R/derive_hospital_code_from_hes/03_endoscopy_diagnostics.R")
+# put the injections back, so the later stages read from disk as they normally do
+rm(read_rapid, read_hes, envir = globalenv())
 
 # ---------------------------------------------------------------------------
 # 2. CWT merge and waiting times

@@ -117,6 +117,31 @@ expect("an unknown code is not a hospital site", !missing$is_hospital_site)
 expect("an unknown code still gets a prefix fallback for its trust",
        missing$parent_trust == "ZZ9")
 
+# -----------------------------------------------------------------------------
+# provider_kind: the plainer reading of the same answer
+# -----------------------------------------------------------------------------
+# HES sitetret carries independent-sector sites as well as NHS ones. They are not
+# NHS trust sites, so is_hospital_site is FALSE for them, but they are real
+# places and must not be lumped in with GP practices and placeholders - the map
+# is meant to give every code a trust, whoever runs it.
+json_indep <- '{"Organisation":{"Name":"AN INDEPENDENT HOSPITAL","OrgId":{"extension":"NT427"},"Status":"Active","orgRecordClass":"RC2","Roles":{"Role":[{"id":"RO172","primaryRole":true,"Status":"Active"}]},"Rels":{"Rel":[{"Status":"Active","Target":{"OrgId":{"extension":"NT4"},"PrimaryRoleId":{"id":"RO172"}},"id":"RE6"}]}}}'
+indep <- ask_from_json("NT427", json_indep)
+expect("an independent-sector site is not an NHS trust site",
+       !indep$is_hospital_site)
+expect("but it is recorded as a site, not as an unexplained other",
+       indep$provider_kind == "other site (independent sector or similar)")
+expect("and it still gets its operator from ODS",
+       indep$parent_trust == "NT4" && indep$parent_from_ods)
+
+expect("an NHS trust site is named as one",
+       site$provider_kind == "NHS trust site")
+expect("a trust record is named as a trust",
+       trust$provider_kind == "NHS trust")
+expect("a GP practice is named as one",
+       gp$provider_kind == "GP practice")
+expect("a code ODS does not know is named as not in ODS",
+       missing$provider_kind == "not in ODS")
+
 # two operated-by relationships, one active and one not: take the active one
 json_two <- '{"Organisation":{"Name":"MOVED SITE","OrgId":{"extension":"RBB02"},"Status":"Active","orgRecordClass":"RC2","Roles":{"Role":[{"id":"RO198","primaryRole":true,"Status":"Active"}]},"Rels":{"Rel":[{"Status":"Inactive","Target":{"OrgId":{"extension":"RCC"},"PrimaryRoleId":{"id":"RO197"}},"id":"RE6"},{"Status":"Active","Target":{"OrgId":{"extension":"RBB"},"PrimaryRoleId":{"id":"RO197"}},"id":"RE6"}]}}}'
 two <- ask_from_json("RBB02", json_two)
