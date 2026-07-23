@@ -117,6 +117,65 @@ expect("the fastest site is almost certainly in the top third",
 expect("the slowest site is almost never in the top third",
        rm_out$p_top50[3] < 0.01)
 
+cat("\nThe two periods, and the improvement estimand\n")
+# the period assignment used at the top of 02: both endpoints inclusive, and
+# anything outside both periods left NA rather than swept into one of them.
+assign_period <- function(d, p1s, p1e, p2s, p2e) {
+  factor(dplyr::case_when(d >= p1s & d <= p1e ~ "first",
+                          d >= p2s & d <= p2e ~ "second",
+                          TRUE                ~ NA_character_),
+         levels = c("first", "second"))
+}
+probe <- as.Date(c("2022-12-31", "2023-01-01", "2023-12-31",
+                   "2024-01-01", "2024-12-31", "2025-01-01"))
+got <- as.character(assign_period(probe,
+                                  as.Date("2023-01-01"), as.Date("2023-12-31"),
+                                  as.Date("2024-01-01"), as.Date("2024-12-31")))
+expect("both period endpoints are inclusive",
+       identical(got, c(NA, "first", "first", "second", "second", NA)))
+expect("a date before period 1 or after period 2 belongs to neither",
+       is.na(got[1]) && is.na(got[6]))
+
+# the improvement estimand needs BOTH periods at a site. A site with patients in
+# only one cannot have a change estimated, and must be dropped rather than
+# contributing a one-sided difference.
+enough_both <- function(counts, floor) {
+  keep <- counts$first >= floor & counts$second >= floor
+  as.character(counts$hosp[keep])
+}
+counts <- data.frame(hosp = c("A", "B", "C", "D"),
+                     first  = c(20L, 20L,  3L, 0L),
+                     second = c(20L,  2L, 20L, 0L),
+                     stringsAsFactors = FALSE)
+expect("only sites with enough patients in both periods are kept",
+       identical(enough_both(counts, 10L), "A"))
+expect("a site absent from one period is dropped, not treated as zero change",
+       !"D" %in% enough_both(counts, 10L))
+
+# the change score itself: negative means faster in period 2, and the standard
+# error combines the two arms.
+delta_of <- function(m1, m2) m2 - m1
+se_of    <- function(s1, s2) sqrt(s1^2 + s2^2)
+expect("a site that got faster has a negative change",
+       delta_of(60, 45) < 0)
+expect("a site that got slower has a positive change",
+       delta_of(45, 60) > 0)
+expect("the change standard error combines both periods",
+       abs(se_of(3, 4) - 5) < 1e-9)
+
+# ranked by the change, the most improved site is rank 1 - the same direction as
+# the sustained estimand, where the fastest is rank 1.
+set.seed(2)
+imp_draws <- cbind(rnorm(2000, -15, 1),   # improved a lot
+                   rnorm(2000,   0, 1),   # no change
+                   rnorm(2000,  10, 1))   # got slower
+imp_rm <- rank_metrics(imp_draws)
+expect("the most improved site ranks first on the change",
+       imp_rm$exp_rank[1] < imp_rm$exp_rank[2] &&
+         imp_rm$exp_rank[2] < imp_rm$exp_rank[3])
+expect("a site that got slower is almost never in the top third on improvement",
+       imp_rm$p_top50[3] < 0.01)
+
 cat("\nTitle case for hospital names\n")
 expect("small joining words stay lower case, except the first",
        title_case("THE ROYAL MARSDEN") == "The Royal Marsden")

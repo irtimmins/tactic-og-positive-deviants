@@ -153,6 +153,70 @@ run_standardise <- function(patient_data,
 # --- posterior ranking ------------------------------------------------------
 # posterior ranking metrics from a draws-by-hospital matrix of latent means.
 # shorter wait is better, so rank 1 is the best performer.
+# --- the improvement estimand ------------------------------------------------
+# For each site, the difference between its directly-standardised mean waiting
+# time in period 2 and in period 1. The periods are the explicit date ranges set
+# in 01_config.R, and a patient's period is assigned in 02; nothing is derived
+# here.
+#
+# Both arms are standardised to the SAME fixed population - period 1's case-mix
+# - which is what makes the difference a change in speed rather than a change in
+# who was diagnosed. If a site's patients got older between the periods, an
+# unstandardised comparison would read that as getting slower.
+#
+# Returns one row per site with the change (delta; NEGATIVE means faster in
+# period 2, i.e. improved), its standard error, and the two period counts. Sites
+# without min_patients_per_period in both periods are dropped: a change cannot be
+# estimated from one arm. A covariate that is constant within a period (the
+# later-period indicator) carries no information there and is dropped by
+# run_standardise, so passing season + year here amounts to season only.
+standardise_change <- function(patient_data,
+                               continuous_covariates,
+                               binary_covariates,
+                               lambda = lambda_main,
+                               min_patients_per_period = min_per_period) {
+  
+  patients_per_period <- patient_data %>%
+    count(hosp, period) %>%
+    tidyr::pivot_wider(names_from = period, values_from = n, values_fill = 0)
+  for (nm in c("first", "second"))
+    if (!nm %in% names(patients_per_period)) patients_per_period[[nm]] <- 0L
+  
+  hospitals_kept <- patients_per_period %>%
+    filter(first >= min_patients_per_period, second >= min_patients_per_period) %>%
+    pull(hosp)
+  if (!length(hospitals_kept)) return(NULL)
+  
+  period_1_data <- patient_data %>% filter(period == "first",  hosp %in% hospitals_kept)
+  period_2_data <- patient_data %>% filter(period == "second", hosp %in% hospitals_kept)
+  
+  # the fixed target both arms are standardised to: period 1's case-mix
+  baseline_moments <- ref_moments(period_1_data, continuous_covariates,
+                                  binary_covariates)
+  
+  earlier <- run_standardise(patient_data          = period_1_data,
+                             continuous_covariates = continuous_covariates,
+                             binary_covariates     = binary_covariates,
+                             lambda                = lambda,
+                             reference_moments     = baseline_moments,
+                             target_population     = period_1_data)$site
+  later   <- run_standardise(patient_data          = period_2_data,
+                             continuous_covariates = continuous_covariates,
+                             binary_covariates     = binary_covariates,
+                             lambda                = lambda,
+                             reference_moments     = baseline_moments,
+                             target_population     = period_1_data)$site
+  
+  earlier %>%
+    select(hosp, diag_hosp, mean_earlier = stand_adj, se_earlier = se_adj_pool,
+           n1 = n, ess1 = n_eff) %>%
+    inner_join(later %>% select(hosp, mean_later = stand_adj,
+                                se_later = se_adj_pool, n2 = n, ess2 = n_eff),
+               by = "hosp") %>%
+    mutate(delta    = mean_later - mean_earlier,
+           se_delta = sqrt(se_earlier^2 + se_later^2))
+}
+
 rank_metrics <- function(draws, tops = c(.05, .10, .20, .25, .50)) {
   J <- ncol(draws)
   ranks <- t(apply(draws, 1, rank, ties.method = "average"))

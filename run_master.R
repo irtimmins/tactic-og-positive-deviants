@@ -45,7 +45,7 @@ source("R/shared/stage_runner.R")
 # Generate synthetic list of hospital 5-digit codes.
 #run_master(stages = 0,                        mode = "simulated")
 # Build analysis cohort using hes/cosd info.
-# run_master(stages = c("3b", "3a", 4, 5),      mode = "simulated")
+#run_master(stages = c("3b", "3a", 4, 5),      mode = "simulated")
 # Test run of positive deviance
 # run_master(stages = 6,                        mode = "simulated")   # needs balancer + rstan
 
