@@ -24,10 +24,13 @@
 # dir_ref    reference lookups (the SNOMED map, the site-to-trust map, the
 #            valid-trust list) - built once, not patient data, so they live in
 #            the repo.
-# dir_debug  small, AGGREGATE intermediates (no patient_pseudo_id) kept for
-#            debugging. Also in the repo.
-# dir_sim    the synthetic tree the test run writes to - fixtures for every
-#            stage. In the repo but .gitignored, so the fakes are never pushed.
+# dir_debug  small, AGGREGATE results and intermediates (no patient_pseudo_id).
+#            This is where a run's tables and figures go when dir_transfer is
+#            NOT set - an exploratory run, or a real run that has not opted in
+#            to writing to the S: area. Under Output/, which is .gitignored, so
+#            results are kept out of the commit history but are easy to find.
+# dir_sim    the synthetic tree the simulated run writes to. Also under Output/
+#            and .gitignored, so the fakes are never pushed.
 # the repository's own name, used to name this project's folder in the shared
 # results-transfer area (transfer_root, below).
 repo_name <- "tactic-og-positive-deviants"
@@ -35,9 +38,18 @@ repo_name <- "tactic-og-positive-deviants"
 if (!exists("dir_raw")) dir_raw <- "W:/_DATA/IainTimmins/2026 OG SOTN data"
 if (!exists("dir_out")) dir_out <- "W:/_DATA/IainTimmins/2026 OG SOTN data/Analysis"
 if (!exists("dir_ref")) dir_ref <- "Data/reference"
-if (!exists("dir_debug")) dir_debug <- "Data/intermediates"
-if (!exists("dir_sim")) dir_sim <- "Data/sim"
-for (.dir_to_make in c(dir_out, dir_ref, dir_debug))
+if (!exists("dir_debug")) dir_debug <- "Output/local"
+if (!exists("dir_sim")) dir_sim <- "Output/sim/raw"
+# dir_out and dir_ref are created here: every stage writes its handoff file to
+# dir_out, and a stage may look for a reference file before anything has written
+# one, so both need to exist as soon as the paths are known.
+#
+# dir_debug is deliberately NOT created here. It is only written to by the
+# stages that produce aggregate results, and only when dir_transfer is unset -
+# creating it eagerly would leave an empty Output/local behind after every
+# simulated run, which re-sources this file after pointing the paths elsewhere.
+# The one place that writes there (stage 05's config) calls dir.create() itself.
+for (.dir_to_make in c(dir_out, dir_ref))
   dir.create(.dir_to_make, recursive = TRUE, showWarnings = FALSE)
 
 # a note for anyone adding to this file: every stage's 01 uses plain source(),

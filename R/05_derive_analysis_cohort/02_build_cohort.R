@@ -171,6 +171,36 @@ if (drop_zero_wait) {
   fc("Wait > 0 days (positive endoscopy-to-DTT only)", df)
 }
 
+# the two treatment-side intervals -------------------------------------------
+# The cohort is defined on the endoscopy-to-DTT wait alone, so it is not
+# filtered on these - a patient with no usable treatment date stays in and is
+# simply missing them. They are reported here so that missingness is visible
+# rather than showing up unexplained as a smaller denominator in Table 1.
+#
+#   wt_dtt_to_tx    decision-to-treat -> first treatment. Already validity-gated
+#                   in the CWT merge (blanked when over the cap, non-positive,
+#                   or the treatment dates disagree).
+#   wt_endo_to_tx   endoscopy -> first treatment, the whole pathway. The merge
+#                   computes this one but does NOT gate it, so it is gated here
+#                   to match: kept only where both component intervals are
+#                   valid, which is also what makes the three columns add up
+#                   (endoscopy-to-treatment = endoscopy-to-DTT + DTT-to-treatment).
+if (all(c("wt_dtt_to_tx", "wt_endo_to_tx") %in% names(df))) {
+  df <- df %>%
+    mutate(wt_endo_to_tx = if_else(!is.na(wt_endo_to_dtt) & !is.na(wt_dtt_to_tx),
+                                   wt_endo_to_tx, NA_integer_))
+  cat(sprintf(paste0("\ntreatment-side intervals in the cohort:\n",
+                     "  decision-to-treat to treatment : %d of %d (%.1f%%)\n",
+                     "  endoscopy to treatment         : %d of %d (%.1f%%)\n"),
+              sum(!is.na(df$wt_dtt_to_tx)), nrow(df),
+              100 * mean(!is.na(df$wt_dtt_to_tx)),
+              sum(!is.na(df$wt_endo_to_tx)), nrow(df),
+              100 * mean(!is.na(df$wt_endo_to_tx))))
+} else {
+  cat("note: wt_dtt_to_tx / wt_endo_to_tx not present - treatment-side",
+      "intervals unavailable\n")
+}
+
 # hospital unit, trust resolution and valid-trust restriction ----------------
 # the unit of analysis is whichever hospital hosp_var names (endoscopy_site by
 # default). Drop patients with no code for it first (they cannot be assigned to

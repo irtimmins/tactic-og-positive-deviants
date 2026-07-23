@@ -34,7 +34,7 @@ suppressPackageStartupMessages({
   library(magrittr)   # for %>%
 })
 
-if (!exists("dir_sim")) dir_sim <- "Data/sim"
+if (!exists("dir_sim")) dir_sim <- "Output/sim/raw"
 if (!exists("sim_scale")) sim_scale <- 1        # 0.1 gives a tenth-size run
 if (!exists("sim_seed")) sim_seed <- 20260212
 dir.create(dir_sim, recursive = TRUE, showWarnings = FALSE)

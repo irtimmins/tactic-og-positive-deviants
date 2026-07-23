@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
   library(magrittr)
 })
 
-if (!exists("dir_sim"))   dir_sim   <- "Data/sim"
+if (!exists("dir_sim"))   dir_sim   <- "Output/sim/raw"
 if (!exists("sim_scale")) sim_scale <- 1
 if (!exists("sim_seed"))  sim_seed  <- 20260212
 set.seed(sim_seed)

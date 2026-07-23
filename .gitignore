@@ -13,6 +13,7 @@ Data/sim/
 Data/intermediates/
 Data/OG/
 Data/OG_test/
+Output/
 *.rds
 *.dta
 inventory_report.txt

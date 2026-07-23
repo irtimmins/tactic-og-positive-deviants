@@ -43,16 +43,24 @@ valid_trusts_csv   <- file.path(dir_ref, "valid_diagnosing_trusts.csv")
 # patient-level (carries patient_pseudo_id): dir_out, the restricted drive.
 cohort_rds <- file.path(dir_out, "pd_cohort.rds")   # 02 -> 03/04, patient rows
 # key shareable outputs (aggregate tables and figures): dir_transfer, if it has
-# been set for a real run (see run_master.R with dir_transfer set). If it has not - a
-# simulated or exploratory run - fall back to a local folder under dir_debug, so
-# nothing here ever requires the S: drive to exist just to test the code.
+# been set for a real run (see block B of run_master.R). If it has not, fall back
+# to dir_debug, so nothing here ever requires the S: drive to exist just to run
+# the code.
+#
+# The fallback is dir_debug itself (Output/local for a real run, Output/sim/
+# intermediates for a simulated one) rather than a subfolder named for testing.
+# An earlier version wrote to "positive_deviance_test_output", which was fine
+# while only test runs landed there - but this is also where a REAL run's
+# results go when someone forgets to set dir_transfer, and a folder named
+# "test_output" holding genuine results is a good way to have them ignored or
+# deleted.
 if (is.null(dir_transfer)) {
-  warning("dir_transfer is not set - writing this stage's results to a local ",
-          "folder instead of the S: transfer area. This is what a simulated or ",
-          "exploratory run should do. For a real run whose results are meant to ",
-          "leave the server, set dir_transfer <- transfer_root before calling ",
-          "run_master().", call. = FALSE)
-  out_dir <- file.path(dir_debug, "positive_deviance_test_output")
+  warning("dir_transfer is not set, so this stage's results are being written ",
+          "to ", dir_debug, " rather than the S: transfer area. That is correct ",
+          "for a simulated or exploratory run. If this is a real run whose ",
+          "results need to leave the server, stop, set dir_transfer <- ",
+          "transfer_root, and run again.", call. = FALSE)
+  out_dir <- dir_debug
 } else {
   out_dir <- dir_transfer
 }
