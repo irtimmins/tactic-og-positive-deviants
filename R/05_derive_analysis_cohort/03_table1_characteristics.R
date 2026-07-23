@@ -23,16 +23,17 @@ has_route <- any(!is.na(df$tfinal_route))
 # pathway grouping for reporting ----------------------------------------------
 # The cohort-membership decision (which raw tx_pathway values are curative) is
 # made in 02_build_cohort.R / 01_config.R; this is a purely presentational
-# regrouping of pathways that are already in the cohort, so it lives here rather
-# than upstream:
-#   - the three neoadjuvant routes (chemo / RT / chemoRT) are combined into one
-#     "Surgery + neoadjuvant chemo/RT" row, since the neoadjuvant regimen detail
-#     is not the axis this table reports on
-#   - "EMR/ESD only" and "EMR/ESD then surgery" are combined into "EMR/ESD".
-#     NEEDS CLINICAL REVIEW: the "then surgery" patients' wait intervals are
-#     still anchored on the surgery date rather than the EMR/ESD date - see the
-#     printed flag in 02_build_cohort.R and its comment in 01_config.R. Counted
-#     again here so the review need is visible in this table's own output too.
+# regrouping of pathways already in the cohort, so it lives here rather than
+# upstream. The three neoadjuvant routes (chemo / RT / chemoRT) are combined
+# into one "Surgery + neoadjuvant chemo/RT" row, since the neoadjuvant regimen
+# detail is not the axis this table reports on.
+#
+# "EMR/ESD then surgery" is deliberately absent: it is held out of the cohort in
+# 01_config.R because its wait intervals are measured to the surgery date rather
+# than to the EMR/ESD that actually started treatment. If it is ever brought in,
+# add it here mapping to "EMR/ESD only" (and rename that level to "EMR/ESD") -
+# the check below will fail loudly until that is done, rather than silently
+# dropping the patients into an NA level.
 pathway_group_map <- c(
   "Surgery only"                   = "Surgery only",
   "Surgery + neoadjuvant chemo"    = "Surgery + neoadjuvant chemo/RT",
@@ -41,19 +42,19 @@ pathway_group_map <- c(
   "Surgery + adjuvant chemo"       = "Surgery + adjuvant chemo",
   "Definitive chemoRT"             = "Definitive chemoRT",
   "Curative RT only"               = "Curative RT only",
-  "EMR/ESD only"                   = "EMR/ESD",
-  "EMR/ESD then surgery"           = "EMR/ESD")
+  "EMR/ESD only"                   = "EMR/ESD only")
 pathway_levels <- c("Surgery only", "Surgery + neoadjuvant chemo/RT",
                     "Surgery + adjuvant chemo", "Definitive chemoRT",
-                    "Curative RT only", "EMR/ESD")
+                    "Curative RT only", "EMR/ESD only")
 
-n_emr_then_surg <- sum(df$tx_pathway == "EMR/ESD then surgery", na.rm = TRUE)
-if (n_emr_then_surg > 0)
-  cat(sprintf(paste0(
-    "NEEDS CLINICAL REVIEW: the 'EMR/ESD' row below includes %d patient(s) ",
-    "whose pathway was 'EMR/ESD then surgery' - their wait intervals are ",
-    "anchored on the surgery date, not the EMR/ESD date. See 02_build_cohort.R.\n"),
-    n_emr_then_surg))
+# a pathway in the cohort but not in the map would become NA and vanish from the
+# table without comment - stop instead, naming what is missing.
+unmapped <- setdiff(unique(as.character(df$tx_pathway)), names(pathway_group_map))
+if (length(unmapped))
+  stop("treatment pathway(s) in the cohort with no reporting group: ",
+       paste(unmapped, collapse = ", "),
+       "\n  - add them to pathway_group_map in 03_table1_characteristics.R.",
+       call. = FALSE)
 
 d <- df %>% mutate(
   age_grp = cut(agediag, c(-Inf, 50, 60, 70, 80, Inf),

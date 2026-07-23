@@ -108,8 +108,8 @@ cat(sprintf("endoscopy dates present (sotn_cohort): %s to %s\n", start_date, end
 
 # curative pathway -----------------------------------------------------------
 # hold out any pathway named in pathways_flagged, reporting the count before it
-# is dropped. Currently empty (see 01_config.R) - the fc() step is skipped
-# rather than logging a no-op exclusion when there is nothing to hold out.
+# is dropped, then keep only the curative-inclusion pathways. The guard means an
+# empty pathways_flagged skips the step rather than logging a no-op exclusion.
 n_flagged <- 0L
 if (length(pathways_flagged)) {
   n_flagged <- sum(df$tx_pathway %in% pathways_flagged)
@@ -120,25 +120,6 @@ if (length(pathways_flagged)) {
 
 df <- df %>% filter(tx_pathway %in% pathways_include)
 fc("Curative treatment pathway", df)
-
-# EMR/ESD then surgery: known limitation, flagged every run --------------
-# This subgroup is included in the cohort (see pathways_include) and grouped
-# into "EMR/ESD" for reporting, but their treatment-side wait intervals
-# (decision-to-treat-to-treatment, endoscopy-to-treatment) are still anchored on
-# whatever stage 04 picked as this pathway's clock-stop, which is the surgery
-# date, not the EMR/ESD date. Printed on every run, not just noted in a comment,
-# so the limitation cannot be missed while it stands.
-n_emr_then_surg <- sum(df$tx_pathway == "EMR/ESD then surgery")
-if (n_emr_then_surg > 0)
-  cat(sprintf(paste0(
-    "\nNEEDS CLINICAL REVIEW: %d patient(s) with pathway 'EMR/ESD then ",
-    "surgery' are in the cohort, grouped into 'EMR/ESD' for reporting. Their ",
-    "decision-to-treat-to-treatment and endoscopy-to-treatment intervals are ",
-    "anchored on the SURGERY date (this pathway's stage-04 clock-stop), not ",
-    "the EMR/ESD date - so they are not yet being examined on the basis of ",
-    "EMR/ESD as their first treatment. Reassign the clock-stop for this ",
-    "pathway to the EMR/ESD date in stage 04 (03_cwt_merge.R) to fix this.\n"),
-    n_emr_then_surg))
 
 # tumour site ----------------------------------------------------------------
 # oesophageal only by default (C15); see include_sites in the config.
