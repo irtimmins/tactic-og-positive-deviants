@@ -68,11 +68,11 @@ if (requireNamespace("ggplot2", quietly = TRUE) &&
   library(scales)
   
   # tunable style (adjust here) ----------------------------------------------
-  axis_title_size <- 10      # axis titles
-  axis_text_size  <- 9       # axis tick labels
-  cat_ci_alpha    <- 0.30    # credible-interval opacity - lighter than the points
-  cat_ci_lwd      <- 0.25    # credible-interval line width
-  cat_pt_size     <- 0.8     # point size
+  axis_title_size <- 11      # axis titles
+  axis_text_size  <- 10       # axis tick labels
+  cat_ci_alpha    <- 0.35    # credible-interval opacity - lighter than the points
+  cat_ci_lwd      <- 0.7    # credible-interval line width
+  cat_pt_size     <- 1.2     # point size
   cat_xtitle_gap  <- 2.5     # pt gap from the x-axis line to the "Hospitals" title
   col_base        <- "darkblue"    # points and intervals
   col_high        <- "darkorange3" # a highlighted hospital, if one is named
