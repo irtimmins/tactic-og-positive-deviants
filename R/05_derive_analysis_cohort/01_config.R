@@ -81,9 +81,22 @@ hosp_excl_csv  <- file.path(out_dir, "pd_hospitals_excluded.csv")
 # The tx_pathway values (from the merge stage) that define the curative cohort.
 # Resection, neoadjuvant-then-surgery, adjuvant, and the non-surgical definitive
 # pathways are in; EMR/ESD only is included as a curative endoscopic pathway.
-# "EMR/ESD then surgery" is held out for now (see pathways_flagged) pending
-# clinical confirmation of what that pathway represents. Everything else
-# (palliative, SACT only, no treatment) is excluded as non-curative.
+#
+# "EMR/ESD then surgery" is included here too, grouped into a single "EMR/ESD"
+# category alongside "EMR/ESD only" for reporting (see the pathway recode in
+# 03_table1_characteristics.R). NEEDS CLINICAL REVIEW: for this subgroup the
+# patient's first treatment was EMR/ESD, but a major resection followed, and the
+# decision-to-treat-to-treatment and endoscopy-to-treatment intervals reported
+# for them are still anchored on whichever date stage 04's pathway derivation
+# picked as the clock-stop - currently the surgery date, not the EMR/ESD date.
+# Treating EMR/ESD as the first treatment for waiting-time purposes (ignoring
+# the subsequent resection) requires the clock-stop for this pathway to be
+# reassigned to the EMR/ESD date in stage 04 (03_cwt_merge.R); until that is
+# done, 02_build_cohort.R below reports how many such patients are in the
+# cohort so the limitation stays visible rather than silent.
+#
+# Everything else (palliative, SACT only, no treatment) is excluded as
+# non-curative.
 pathways_include <- c(
   "Surgery only",
   "Surgery + neoadjuvant chemo",
@@ -92,11 +105,14 @@ pathways_include <- c(
   "Surgery + adjuvant chemo",
   "Definitive chemoRT",
   "Curative RT only",
-  "EMR/ESD only")
+  "EMR/ESD only",
+  "EMR/ESD then surgery")
 
-# flagged, and excluded until the pathway is clarified. Reported in the attrition
-# so the count is visible rather than silently dropped.
-pathways_flagged <- c("EMR/ESD then surgery")
+# held out pending clinical review: none, currently. Kept as a named, generic
+# mechanism (rather than removed) so a future pathway can be held out the same
+# way "EMR/ESD then surgery" was until the line above. Reported in the
+# attrition so a non-empty list is always visible, not just assumed empty.
+pathways_flagged <- character(0)
 
 # tumour site restriction ----------------------------------------------------
 # the analysis is oesophageal only: keep C15, drop C16 (gastric). tumour_site is

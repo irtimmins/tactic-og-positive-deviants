@@ -153,6 +153,27 @@ run_standardise <- function(patient_data,
 # --- posterior ranking ------------------------------------------------------
 # posterior ranking metrics from a draws-by-hospital matrix of latent means.
 # shorter wait is better, so rank 1 is the best performer.
+# --- hospital display names --------------------------------------------------
+# A named character vector mapping five-character site code -> hospital name, for
+# the ranking tables. The names come from the ODS site-to-trust map built in
+# stage 01; ODS returns them in capitals, so title_case (R/shared/utils.R) tidies
+# them here once rather than at each place they are printed.
+#
+# Returns NULL when the map is absent or has no usable names, and the callers
+# fall back to showing the site code alone - a missing lookup should cost a
+# nicer label, not the whole table.
+hospital_names <- function(path = f_site_trust_map) {
+  if (!file.exists(path)) return(NULL)
+  map <- try(read.csv(path, colClasses = "character"), silent = TRUE)
+  if (inherits(map, "try-error") ||
+      !all(c("site_code", "name") %in% names(map))) return(NULL)
+  map <- map[!is.na(map$site_code) & nzchar(map$site_code) &
+               !is.na(map$name) & nzchar(map$name), c("site_code", "name"), drop = FALSE]
+  map <- map[!duplicated(map$site_code), , drop = FALSE]
+  if (!nrow(map)) return(NULL)
+  setNames(title_case(map$name), map$site_code)
+}
+
 # --- the improvement estimand ------------------------------------------------
 # For each site, the difference between its directly-standardised mean waiting
 # time in period 2 and in period 1. The periods are the explicit date ranges set

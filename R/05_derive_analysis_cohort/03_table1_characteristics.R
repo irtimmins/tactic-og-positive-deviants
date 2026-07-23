@@ -20,15 +20,60 @@ df <- readRDS(cohort_rds)
 if (!"tfinal_route" %in% names(df)) df$tfinal_route <- NA_character_
 has_route <- any(!is.na(df$tfinal_route))
 
+# pathway grouping for reporting ----------------------------------------------
+# The cohort-membership decision (which raw tx_pathway values are curative) is
+# made in 02_build_cohort.R / 01_config.R; this is a purely presentational
+# regrouping of pathways that are already in the cohort, so it lives here rather
+# than upstream:
+#   - the three neoadjuvant routes (chemo / RT / chemoRT) are combined into one
+#     "Surgery + neoadjuvant chemo/RT" row, since the neoadjuvant regimen detail
+#     is not the axis this table reports on
+#   - "EMR/ESD only" and "EMR/ESD then surgery" are combined into "EMR/ESD".
+#     NEEDS CLINICAL REVIEW: the "then surgery" patients' wait intervals are
+#     still anchored on the surgery date rather than the EMR/ESD date - see the
+#     printed flag in 02_build_cohort.R and its comment in 01_config.R. Counted
+#     again here so the review need is visible in this table's own output too.
+pathway_group_map <- c(
+  "Surgery only"                   = "Surgery only",
+  "Surgery + neoadjuvant chemo"    = "Surgery + neoadjuvant chemo/RT",
+  "Surgery + neoadjuvant RT"       = "Surgery + neoadjuvant chemo/RT",
+  "Surgery + neoadjuvant chemoRT"  = "Surgery + neoadjuvant chemo/RT",
+  "Surgery + adjuvant chemo"       = "Surgery + adjuvant chemo",
+  "Definitive chemoRT"             = "Definitive chemoRT",
+  "Curative RT only"               = "Curative RT only",
+  "EMR/ESD only"                   = "EMR/ESD",
+  "EMR/ESD then surgery"           = "EMR/ESD")
+pathway_levels <- c("Surgery only", "Surgery + neoadjuvant chemo/RT",
+                    "Surgery + adjuvant chemo", "Definitive chemoRT",
+                    "Curative RT only", "EMR/ESD")
+
+n_emr_then_surg <- sum(df$tx_pathway == "EMR/ESD then surgery", na.rm = TRUE)
+if (n_emr_then_surg > 0)
+  cat(sprintf(paste0(
+    "NEEDS CLINICAL REVIEW: the 'EMR/ESD' row below includes %d patient(s) ",
+    "whose pathway was 'EMR/ESD then surgery' - their wait intervals are ",
+    "anchored on the surgery date, not the EMR/ESD date. See 02_build_cohort.R.\n"),
+    n_emr_then_surg))
+
 d <- df %>% mutate(
   age_grp = cut(agediag, c(-Inf, 50, 60, 70, 80, Inf),
                 labels = c("<50", "50-59", "60-69", "70-79", "80+")),
   sex     = factor(sexf, levels = c("Male", "Female")),
   stage_f = factor(as.character(stage), levels = c("1", "2", "3")),
-  path_f  = factor(tx_pathway, levels = pathways_include),
+  path_f  = factor(unname(pathway_group_map[tx_pathway]), levels = pathway_levels),
   eth_f   = factor(as.character(eth),
                    levels = c("White", "Asian", "Black", "Mixed", "Other")),
-  imd_f   = factor(imd),
+  # IMD quintile 1 is the MOST deprived and 5 the LEAST deprived in the
+  # registry's own coding (see imd_2019_RR in 02_build_cohort.R) - the same
+  # convention the registry's own quintile_2019 field uses ("1 - most
+  # deprived" ... "5 - least deprived"). The table is ordered from least to
+  # most deprived (5 down to 1), with those two labels made explicit so the
+  # direction cannot be misread from the number alone.
+  imd_f   = factor(dplyr::recode(as.character(imd),
+                                 "1" = "1 - most deprived",
+                                 "5" = "5 - least deprived"),
+                   levels = c("5 - least deprived", "4", "3", "2",
+                              "1 - most deprived")),
   cci_f   = factor(ifelse(cci_n_conditions >= 2, "2+", as.character(cci_n_conditions)),
                    levels = c("0", "1", "2+")),
   season_f = factor(case_when(q2 == 1 ~ "Apr-Jun",
@@ -80,7 +125,7 @@ cat_block <- function(d, var, label) {
               w3 = msd(wt_endo_to_tx),
               .groups = "drop") %>%
     transmute(item = as.character(Level),
-              patients = sprintf("%s (%.1f)", formatC(np, format = "d", big.mark = ","),
+              patients = sprintf("%s (%.1f%%)", formatC(np, format = "d", big.mark = ","),
                                  100 * np / nrow(d)),
               endo_to_dtt = w1, dtt_to_tx = w2, endo_to_tx = w3,
               is_head = FALSE, indent = TRUE)
@@ -106,11 +151,11 @@ tab1 <- bind_rows(
   cat_block(d, "age_grp",  "Age group"),
   cat_block(d, "sex",      "Sex"),
   cat_block(d, "stage_f",  "Stage at diagnosis"),
-  if (has_route) cat_block(d, "route_f", "Route to diagnosis"),
   cat_block(d, "path_f",   "Treatment pathway"),
   cat_block(d, "eth_f",    "Ethnicity"),
   cat_block(d, "imd_f",    "Deprivation quintile"),
   cat_block(d, "cci_f",    "RCS Charlson comorbidity score"),
+  if (has_route) cat_block(d, "route_f", "Route to diagnosis"),
   cat_block(d, "year_f",   "Calendar year"),
   cat_block(d, "season_f", "Season of diagnosis")
 )
