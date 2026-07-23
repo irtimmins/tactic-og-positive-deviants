@@ -156,4 +156,29 @@ write.table(out, f_site_codes, sep = "\t", quote = FALSE, row.names = FALSE,
             fileEncoding = "ASCII")
 
 cat("\nWrote", f_site_codes, "\n")
+
+# and again into the transfer area, when a run has one set. dir_transfer is the
+# only folder on the analysis server that is not encrypted at rest, so it is the
+# only place a file can be written and then actually carried off - writing the
+# copy here saves fetching it out of dir_ref by hand.
+#
+# This file is safe to put there: it holds organisation codes and nothing else,
+# no patient rows. The other thing this stage produces, hes_extract.rds, is
+# patient-level and is deliberately NOT copied.
+if (!is.null(dir_transfer)) {
+  dir.create(dir_transfer, recursive = TRUE, showWarnings = FALSE)
+  f_transfer <- file.path(dir_transfer, basename(f_site_codes))
+  if (file.copy(f_site_codes, f_transfer, overwrite = TRUE)) {
+    cat("Also written to the transfer area:", f_transfer, "\n")
+  } else {
+    warning("could not write the site-code list to the transfer area (",
+            f_transfer, "). The copy in ", dir_ref, " is unaffected - take it ",
+            "from there instead.", call. = FALSE)
+  }
+} else {
+  cat("dir_transfer is not set, so no copy was placed in the transfer area.\n",
+      "  Set dir_transfer <- transfer_root before running for that copy.\n",
+      sep = "")
+}
+
 cat("Copy it to a machine with internet and run stage 01 there.\n")
